@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Chart } from "chart.js/auto";
 import dayjs from "dayjs";
+import isoWeek from "dayjs/plugin/isoWeek";
+dayjs.extend(isoWeek);
 
-// ★ 응답 크기 제한 (권장)
-const HUB = "/.netlify/functions/sheets-hub?limit=1500";
+// 서버 응답 제한 (너무 크면 1000~2000으로 조절)
+const HUB = "/.netlify/functions/sheets-hub?limit=2000";
 
-/* -------------------- 공통 유틸 -------------------- */
+/* ================= 공통 유틸 ================= */
 function useHubData() {
   const [data, setData] = useState({ items: [], loading: true, error: null });
   useEffect(() => {
     let alive = true;
     fetch(HUB)
       .then((r) => r.json())
-      .then((json) => alive && setData({ items: json.items || [], loading: false, error: null }))
-      .catch((err) => alive && setData({ items: [], loading: false, error: String(err) }));
+      .then((j) => alive && setData({ items: j.items || [], loading: false, error: null }))
+      .catch((e) => alive && setData({ items: [], loading: false, error: String(e) }));
     return () => { alive = false; };
   }, []);
   return data;
@@ -30,17 +32,17 @@ function filterRowsByDate(rows, dateCol, start, end) {
   });
 }
 
-// 너무 많은 포인트일 때 간단 다운샘플링 (균등 간격 샘플)
+// 라벨/값 너무 많으면 등간격 샘플
 function decimate(points, maxPoints = 800) {
   if (points.length <= maxPoints) return points;
   const step = Math.ceil(points.length / maxPoints);
   const out = [];
   for (let i = 0; i < points.length; i += step) out.push(points[i]);
-  if (out[out.length - 1] !== points[points.length - 1]) out.push(points[points.length - 1]);
+  if (!out.length || out[out.length - 1] !== points[points.length - 1]) out.push(points[points.length - 1]);
   return out;
 }
 
-// 특정 헤더 포함 컬럼 탐색
+// 헤더에서 첫 매칭 컬럼
 function findCol(headers, keywords) {
   const lower = headers.map((h) => (h || "").toLowerCase());
   for (let i = 0; i < lower.length; i++) {
@@ -49,31 +51,71 @@ function findCol(headers, keywords) {
   return -1;
 }
 
-function toSeries(item, start, end, pickColIndex) {
+function toBaseSeries(item, start, end, pickColIndex) {
   if (!item) return [];
   const dcol = item.dateCol ?? 0;
   const vcol = pickColIndex ?? (item.valueCols?.[0] ?? 1);
   const rows = filterRowsByDate(item.rows, dcol, start, end);
-  const series = rows
+  const s = rows
     .map((r) => ({
       x: r[dcol],
       y: Number(String(r[vcol]).replace(/,/g, "")),
     }))
     .filter((p) => Number.isFinite(p.y));
-  return decimate(series, 800);
+  return s;
 }
 
-/* -------------------- 차트 컴포넌트 -------------------- */
+/* ===== 리샘플링: none / weekly / monthly (마지막 값 기준) ===== */
+function resample(series, mode) {
+  if (mode === "none") return series;
+  const bucketMap = new Map(); // key -> {x,y} 마지막 값
+  for (const p of series) {
+    const d = dayjs(p.x);
+    if (!d.isValid()) continue;
+    let key;
+    if (mode === "weekly") {
+      key = `${d.isoWeekYear()}-W${String(d.isoWeek()).padStart(2, "0")}`;
+      // 대표 날짜는 주 마지막 날로
+      const end = d.isoWeekYear() === d.add(6 - (d.isoWeekday() - 1), "day").isoWeekYear()
+        ? d.add(6 - (d.isoWeekday() - 1), "day")
+        : d.endOf("week");
+      bucketMap.set(key, { x: end.format("YYYY-MM-DD"), y: p.y });
+    } else if (mode === "monthly") {
+      key = d.format("YYYY-MM");
+      bucketMap.set(key, { x: d.endOf("month").format("YYYY-MM-DD"), y: p.y });
+    }
+  }
+  const out = Array.from(bucketMap.values()).sort((a, b) => (a.x < b.x ? -1 : 1));
+  return out;
+}
+
+function buildSeries(item, start, end, pickColIndex, mode = "none") {
+  const base = toBaseSeries(item, start, end, pickColIndex);
+  const sampled = resample(base, mode);
+  return decimate(sampled, 800);
+}
+
+/* ================= 차트 ================= */
 function LineChart({ series, label, yAxis = "y" }) {
   const ref = useRef(null);
   const chartRef = useRef(null);
+
+  // y축 범위를 데이터 기반으로 강제
+  const [min, max] = useMemo(() => {
+    if (!series || !series.length) return [0, 1];
+    let mn = Infinity, mx = -Infinity;
+    for (const p of series) { if (p.y < mn) mn = p.y; if (p.y > mx) mx = p.y; }
+    if (!Number.isFinite(mn) || !Number.isFinite(mx)) return [0, 1];
+    if (mn === mx) { mn -= 1; mx += 1; }     // 평평하면 범위 확보
+    const pad = (mx - mn) * 0.05;            // 5% 여백
+    return [mn - pad, mx + pad];
+  }, [series]);
 
   useEffect(() => {
     if (!ref.current) return;
     const ctx = ref.current.getContext("2d");
     if (chartRef.current) chartRef.current.destroy();
 
-    // 시리즈가 비었으면 렌더하지 않음
     if (!series || series.length === 0) {
       ref.current.replaceWith(ref.current.cloneNode(true)); // 캔버스 리셋
       return;
@@ -89,17 +131,16 @@ function LineChart({ series, label, yAxis = "y" }) {
         responsive: true,
         maintainAspectRatio: false,
         parsing: false,
-        // normalized: true  // <-- ❌ 축이 0~1로 보일 수 있어 제거
         scales: {
           x: { ticks: { maxRotation: 0, autoSkip: true } },
-          y: { position: "left" },
-          y1: { position: "right", grid: { drawOnChartArea: false } },
+          [yAxis]: { position: yAxis === "y1" ? "right" : "left", suggestedMin: min, suggestedMax: max },
+          ...(yAxis === "y" ? { y1: { position: "right", grid: { drawOnChartArea: false } } } : {}),
         },
         elements: { line: { spanGaps: true } },
       },
     });
     return () => chartRef.current?.destroy();
-  }, [series, label, yAxis]);
+  }, [series, label, yAxis, min, max]);
 
   if (!series || series.length === 0) {
     return (
@@ -114,60 +155,62 @@ function LineChart({ series, label, yAxis = "y" }) {
   return <canvas ref={ref} style={{ width: "100%", height: 300 }} />;
 }
 
-/* -------------------- 페이지 -------------------- */
+/* ================= 메인 ================= */
 export default function App() {
   const { items, loading, error } = useHubData();
 
   const [start, setStart] = useState(() => dayjs("2021-01-01").format("YYYY-MM-DD"));
   const [end, setEnd] = useState(() => dayjs().format("YYYY-MM-DD"));
 
+  // 리샘플링: none / weekly / monthly
+  const [sampleMode, setSampleMode] = useState("none");
+
+  // 종목용 토글: close | volume | rsi
   const [equityMode, setEquityMode] = useState("close");
 
-  const allOkItems = items.filter((it) => !it.error);
-  const metrics = useMemo(() => items.filter((it) => it.type === "metric" && !it.error), [items]);
-  const equities = useMemo(() => items.filter((it) => it.type === "equity" && !it.error), [items]);
+  const allOk = useMemo(() => items.filter((it) => !it.error), [items]);
+  const metrics = useMemo(() => allOk.filter((it) => it.type === "metric"), [allOk]);
+  const equities = useMemo(() => allOk.filter((it) => it.type === "equity"), [allOk]);
 
-  // RSI 별도 시트 매핑 (예: 005930_RSI)
+  // RSI 별도 시트 매핑(005930_RSI -> 005930)
   const rsiMap = useMemo(() => {
-    const map = new Map();
-    for (const it of allOkItems) {
+    const m = new Map();
+    for (const it of allOk) {
       const k = String(it.key || "");
-      if (/_rsi$/i.test(k) || /rsi/.test(it.title?.toLowerCase() || "")) {
-        map.set(k.replace(/_rsi$/i, ""), it);
+      if (/_rsi$/i.test(k) || /rsi/.test((it.title || "").toLowerCase())) {
+        m.set(k.replace(/_rsi$/i, ""), it);
       }
     }
-    return map;
-  }, [allOkItems]);
+    return m;
+  }, [allOk]);
 
-  function equitySeriesByMode(item) {
+  // 종목 카드별 시리즈
+  function equitySeries(item) {
     if (!item) return { label: item?.title || item?.key, series: [] };
     const headers = item.headers || [];
 
     if (equityMode === "volume") {
-      const volIdx = findCol(headers, ["volume", "거래"]);
-      const s = toSeries(item, start, end, volIdx >= 0 ? volIdx : undefined);
+      const idx = findCol(headers, ["volume", "거래"]);
+      const s = buildSeries(item, start, end, idx >= 0 ? idx : undefined, sampleMode);
       return { label: `${item.title || item.key} (Volume)`, series: s };
     }
     if (equityMode === "rsi") {
-      const rsiIdx = findCol(headers, ["rsi", "rsi14"]);
-      if (rsiIdx >= 0) {
-        return { label: `${item.title || item.key} (RSI)`, series: toSeries(item, start, end, rsiIdx) };
+      const idx = findCol(headers, ["rsi", "rsi14"]);
+      if (idx >= 0) {
+        return { label: `${item.title || item.key} (RSI)`, series: buildSeries(item, start, end, idx, sampleMode) };
       }
       const alt = rsiMap.get(String(item.key));
       if (alt) {
-        const rsiIdx2 = findCol(alt.headers || [], ["rsi", "rsi14", "value", "close"]);
-        return { label: `${item.title || item.key} (RSI)`, series: toSeries(alt, start, end, rsiIdx2 >= 0 ? rsiIdx2 : undefined) };
+        const idx2 = findCol(alt.headers || [], ["rsi", "rsi14", "value", "close"]);
+        return { label: `${item.title || item.key} (RSI)`, series: buildSeries(alt, start, end, idx2 >= 0 ? idx2 : undefined, sampleMode) };
       }
-      return { label: `${item.title || item.key} (Close*)`, series: toSeries(item, start, end) };
+      return { label: `${item.title || item.key} (Close*)`, series: buildSeries(item, start, end, undefined, sampleMode) };
     }
-    const closeIdx = findCol(headers, ["close", "price", "adj close", "value"]);
-    return { label: `${item.title || item.key}`, series: toSeries(item, start, end, closeIdx >= 0 ? closeIdx : undefined) };
+
+    const idx = findCol(headers, ["close", "price", "adj close", "value"]);
+    return { label: `${item.title || item.key}`, series: buildSeries(item, start, end, idx >= 0 ? idx : undefined, sampleMode) };
   }
 
-  // 2축 겹쳐보기 (왼/오른쪽 선택은 생략 – 느려짐 방지를 위해 필요 시 나중에 다시 활성화)
-  // 여기서는 우선 전체 카드 렌더에 집중
-
-  /* -------------------- 렌더 -------------------- */
   if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
   if (error) return <div style={{ padding: 24, color: "crimson" }}>{error}</div>;
 
@@ -175,17 +218,18 @@ export default function App() {
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
       <h1 style={{ fontSize: 24, marginBottom: 8 }}>Finance Dashboard</h1>
 
-      {/* 기간 필터 */}
+      {/* 기간 & 리샘플링 */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-        <label>시작일&nbsp;
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+        <label>시작일&nbsp;<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+        <label>종료일&nbsp;<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+        <button onClick={() => { setStart("2021-01-01"); setEnd(dayjs().format("YYYY-MM-DD")); }}>기본 기간</button>
+        <label>리샘플링&nbsp;
+          <select value={sampleMode} onChange={(e) => setSampleMode(e.target.value)}>
+            <option value="none">원본(일별)</option>
+            <option value="weekly">주별(마지막 값)</option>
+            <option value="monthly">월별(마지막 값)</option>
+          </select>
         </label>
-        <label>종료일&nbsp;
-          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
-        </label>
-        <button onClick={() => { setStart("2021-01-01"); setEnd(dayjs().format("YYYY-MM-DD")); }}>
-          기본 기간(2021-01-01 ~ 오늘)
-        </button>
       </div>
 
       {/* ===== Macro Metrics ===== */}
@@ -194,7 +238,7 @@ export default function App() {
           <h2 style={{ fontSize: 20, margin: "16px 0 8px" }}>Macro Metrics</h2>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             {metrics.map((item) => {
-              const s = toSeries(item, start, end);
+              const s = buildSeries(item, start, end, undefined, sampleMode);
               return (
                 <div key={item.key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
                   <div style={{ fontWeight: 600, marginBottom: 8 }}>{item.title || item.key}</div>
@@ -206,7 +250,7 @@ export default function App() {
         </>
       )}
 
-      {/* ===== Equities (Close/Volume/RSI 토글) ===== */}
+      {/* ===== Equities (Close/Volume/RSI) ===== */}
       {equities.length > 0 && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 24 }}>
@@ -223,7 +267,7 @@ export default function App() {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             {equities.map((item) => {
-              const { label, series } = equitySeriesByMode(item);
+              const { label, series } = equitySeries(item);
               return (
                 <div key={item.key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
                   <div style={{ fontWeight: 600, marginBottom: 8 }}>{label}</div>
