@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Chart } from "chart.js/auto";
 import dayjs from "dayjs";
 
+// ★ 필요하면 서버 응답을 가볍게: 뒤에 "?limit=2000" 같은 파라미터를 붙일 수 있어요.
 const HUB = "/.netlify/functions/sheets-hub";
 
 function useHubData() {
@@ -52,70 +53,87 @@ function LineChart({ series, label }) {
     return () => chartRef.current?.destroy();
   }, [series, label]);
 
-  return <canvas ref={ref} style={{ width: "100%", height: 360 }} />;
+  return <canvas ref={ref} style={{ width: "100%", height: 300 }} />;
 }
 
 export default function App() {
   const { items, loading, error } = useHubData();
 
-  const metrics = items.filter(it => it.type === "metric" && !it.error);
-  const equities = items.filter(it => it.type === "equity" && !it.error);
+  // ★ 기본값: 시작=2021-01-01, 종료=오늘
+  const [start, setStart] = useState(() => dayjs("2021-01-01").format("YYYY-MM-DD"));
+  const [end, setEnd] = useState(() => dayjs().format("YYYY-MM-DD"));
 
-  const [activeType, setActiveType] = useState("metric");
-  const pool = activeType === "metric" ? metrics : equities;
-  const [activeKey, setActiveKey] = useState(pool[0]?.key);
-  useEffect(() => { if (pool.length && !pool.find(x => x.key === activeKey)) setActiveKey(pool[0]?.key); }, [activeType, items]);
+  // type별로 구분(보기만)
+  const metrics = useMemo(() => items.filter(it => it.type === "metric" && !it.error), [items]);
+  const equities = useMemo(() => items.filter(it => it.type === "equity" && !it.error), [items]);
 
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-
-  const current = pool.find(x => x.key === activeKey);
-
-  const series = useMemo(() => {
-    if (!current) return [];
-    const dcol = current.dateCol ?? 0;
-    const vcol = (current.valueCols && current.valueCols[0]) ?? 1;
-    const rows = filterRowsByDate(current.rows, dcol, start || null, end || null);
+  // 공통 변환 함수: 각 item을 기간 필터링 후 시리즈로 변환
+  const toSeries = (item) => {
+    if (!item) return [];
+    const dcol = item.dateCol ?? 0;
+    const vcol = (item.valueCols && item.valueCols[0]) ?? 1; // 대표값(첫 번째 숫자 컬럼)
+    const rows = filterRowsByDate(item.rows, dcol, start || null, end || null);
     return rows.map(r => ({
       x: r[dcol],
       y: Number(String(r[vcol]).replace(/,/g, "")) || null
     })).filter(p => p.y != null);
-  }, [current, start, end]);
+  };
 
   if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
   if (error) return <div style={{ padding: 24, color: "crimson" }}>{error}</div>;
 
   return (
-    <div style={{ maxWidth: 1080, margin: "0 auto", padding: 16 }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
       <h1 style={{ fontSize: 24, marginBottom: 8 }}>Finance Dashboard</h1>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={activeType} onChange={e => setActiveType(e.target.value)}>
-          <option value="metric">Macro Metrics</option>
-          <option value="equity">Equities</option>
-        </select>
-
-        <select value={activeKey} onChange={e => setActiveKey(e.target.value)}>
-          {pool.map(it => (
-            <option key={it.key} value={it.key}>{it.title || it.key}</option>
-          ))}
-        </select>
-
-        <label>시작일 <input type="date" value={start} onChange={e => setStart(e.target.value)} /></label>
-        <label>종료일 <input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
-        <button onClick={() => { setStart(""); setEnd(""); }}>기간 초기화</button>
+      {/* 기간 필터 */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+        <label>시작일&nbsp;
+          <input type="date" value={start} onChange={e => setStart(e.target.value)} />
+        </label>
+        <label>종료일&nbsp;
+          <input type="date" value={end} onChange={e => setEnd(e.target.value)} />
+        </label>
+        <button onClick={() => { setStart("2021-01-01"); setEnd(dayjs().format("YYYY-MM-DD")); }}>
+          기본 기간(2021-01-01 ~ 오늘)
+        </button>
       </div>
 
-      <div style={{ marginTop: 16, border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>
-          {current?.title || current?.key}
+      {/* 모든 지표 차트 */}
+      {metrics.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 20, margin: "16px 0 8px" }}>Macro Metrics</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {metrics.map(item => (
+              <div key={item.key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>{item.title || item.key}</div>
+                <LineChart label={item.title || item.key} series={toSeries(item)} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* 모든 종목 차트 */}
+      {equities.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 20, margin: "24px 0 8px" }}>Equities</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {equities.map(item => (
+              <div key={item.key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>{item.title || item.key}</div>
+                <LineChart label={item.title || item.key} series={toSeries(item)} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {(metrics.length === 0 && equities.length === 0) && (
+        <div style={{ color: "#666", marginTop: 16 }}>
+          INDEX에 등록된 시리즈가 없습니다. INDEX 탭에 type/key/title/csv_url을 추가해 주세요.
         </div>
-        <LineChart label={current?.title || current?.key} series={series} />
-      </div>
-
-      <p style={{ color: "#666", marginTop: 12 }}>
-        * INDEX 탭에서 줄을 추가/삭제하면 다음 호출에 자동 반영됩니다.
-      </p>
+      )}
     </div>
   );
 }
