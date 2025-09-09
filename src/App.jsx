@@ -103,7 +103,7 @@ export default function App() {
       {metrics.length > 0 && (
         <>
           <h2 style={{ fontSize: 20, margin: "16px 0 8px" }}>Macro Metrics</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             {metrics.map(item => (
               <div key={item.key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>{item.title || item.key}</div>
@@ -118,7 +118,7 @@ export default function App() {
       {equities.length > 0 && (
         <>
           <h2 style={{ fontSize: 20, margin: "24px 0 8px" }}>Equities</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
             {equities.map(item => (
               <div key={item.key} style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>{item.title || item.key}</div>
