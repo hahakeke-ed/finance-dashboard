@@ -25,16 +25,26 @@ function parseCsv(text) {
 function csvToTable(text) {
   const rows = parseCsv(text);
   if (!rows.length) return { headers: [], rows: [] };
-  const headers = rows[0].map(h => String(h || '').trim());
+  // 기본 트림 + BOM 제거
+  const headers = rows[0].map(h => String(h || '').replace(/^\uFEFF/, '').trim());
   const data = rows.slice(1).filter(r => r.some(x => String(x).trim() !== ''));
   return { headers, rows: data };
 }
 
+// 헤더 정규화: 소문자, BOM 제거, 공백/밑줄 제거
+const norm = (s) =>
+  String(s || '')
+    .replace(/\uFEFF/g, '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '');
+
+/** 날짜 컬럼 위치 추정 */
 function findDateCol(headers) {
   const idx = headers.findIndex(h => /date|time/i.test(h));
   return idx >= 0 ? idx : 0;
 }
 
+/** 대표 숫자 컬럼 후보 */
 function numericCols(headers) {
   const wanted = ['value', 'close', 'adj close', 'price', 'volume', 'rsi', 'rsi14', 'open', 'high', 'low'];
   const idxs = [];
@@ -58,13 +68,23 @@ export const handler = async (event) => {
     const idxText = await (await fetch(INDEX_CSV)).text();
     const { headers: hIdx, rows: rIdx } = csvToTable(idxText);
 
-    const col = (name) => hIdx.findIndex(h => h.toLowerCase() === name);
-    const iType  = col('type');
-    const iKey   = col('key');
-    const iTitle = col('title');
-    const iUrl   = col('csv_url');
-    if ([iType,iKey,iTitle,iUrl].some(x => x < 0)) {
-      throw new Error(`INDEX CSV must have headers: type,key,title,csv_url`);
+    // 요구 헤더: type, key, title, csv_url  (공백/밑줄/대소문자/ BOM 무시)
+    const need = ['type','key','title','csv_url'];
+    const idxMap = {};
+    need.forEach((name) => {
+      const pos = hIdx.findIndex(h => norm(h) === norm(name)); // <-- 핵심
+      idxMap[name] = pos;
+    });
+
+    if (need.some(n => idxMap[n] < 0)) {
+      return {
+        statusCode: 400,
+        headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+        body: JSON.stringify({
+          error: `INDEX CSV must have headers: type,key,title,csv_url`,
+          receivedHeaders: hIdx
+        })
+      };
     }
 
     const params = event.queryStringParameters || {};
@@ -73,10 +93,10 @@ export const handler = async (event) => {
 
     const items = [];
     for (const r of rIdx) {
-      const type  = (r[iType]  || '').trim();
-      const key   = (r[iKey]   || '').trim();
-      const title = (r[iTitle] || '').trim();
-      const url   = (r[iUrl]   || '').trim();
+      const type  = (r[idxMap['type']]  || '').trim();
+      const key   = (r[idxMap['key']]   || '').trim();
+      const title = (r[idxMap['title']] || '').trim();
+      const url   = (r[idxMap['csv_url']]   || '').trim();
       if (!type || !key || !url) continue;
       if (typeFilter && type.toLowerCase() !== typeFilter) continue;
       if (keysFilter && !keysFilter.has(key)) continue;
