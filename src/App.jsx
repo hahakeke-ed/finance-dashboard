@@ -4,10 +4,10 @@ import dayjs from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
 dayjs.extend(isoWeek);
 
-// 서버 응답 제한 (너무 크면 1000~2000으로 조절)
+// 서버 응답 제한 (너무 크면 1000으로 더 줄여도 됨)
 const HUB = "/.netlify/functions/sheets-hub?limit=2000";
 
-/* ================= 공통 유틸 ================= */
+/* =============== 공통 유틸 =============== */
 function useHubData() {
   const [data, setData] = useState({ items: [], loading: true, error: null });
   useEffect(() => {
@@ -32,7 +32,7 @@ function filterRowsByDate(rows, dateCol, start, end) {
   });
 }
 
-// 라벨/값 너무 많으면 등간격 샘플
+// 너무 많을 때 등간격 샘플
 function decimate(points, maxPoints = 800) {
   if (points.length <= maxPoints) return points;
   const step = Math.ceil(points.length / maxPoints);
@@ -51,10 +51,38 @@ function findCol(headers, keywords) {
   return -1;
 }
 
+// ✅ 값 열 자동 탐색: 날짜/리얼타임 열 제외, 숫자 밀도가 가장 높은 열을 선택
+function autoValueCol(headers, rows, dateCol) {
+  const H = headers.map((h) => (h || "").toLowerCase());
+  const bad = /date|time|realtime/;                 // 값 열로 쓰면 안 되는 헤더
+  const n = Math.min(rows.length, 400);            // 앞부분 400행만 샘플
+  let bestIdx = -1, bestScore = -1;
+
+  for (let c = 0; c < headers.length; c++) {
+    if (c === dateCol) continue;
+    if (bad.test(H[c] || "")) continue;
+
+    let score = 0;
+    for (let r = 0; r < n; r++) {
+      const v = rows[r]?.[c];
+      const num = Number(String(v).replace(/,/g, ""));
+      if (Number.isFinite(num)) score++;
+    }
+    if (score > bestScore) { bestScore = score; bestIdx = c; }
+  }
+  return bestIdx; // 없으면 -1
+}
+
+// 원시 시리즈 생성
 function toBaseSeries(item, start, end, pickColIndex) {
   if (!item) return [];
   const dcol = item.dateCol ?? 0;
-  const vcol = pickColIndex ?? (item.valueCols?.[0] ?? 1);
+  // 값 열 결정: 우선 지정 → 없으면 자동탐색 → 그래도 없으면 첫 숫자열
+  let vcol = pickColIndex;
+  if (vcol == null || vcol < 0) {
+    const auto = autoValueCol(item.headers || [], item.rows || [], dcol);
+    vcol = auto >= 0 ? auto : (item.valueCols?.[0] ?? 1);
+  }
   const rows = filterRowsByDate(item.rows, dcol, start, end);
   const s = rows
     .map((r) => ({
@@ -68,25 +96,20 @@ function toBaseSeries(item, start, end, pickColIndex) {
 /* ===== 리샘플링: none / weekly / monthly (마지막 값 기준) ===== */
 function resample(series, mode) {
   if (mode === "none") return series;
-  const bucketMap = new Map(); // key -> {x,y} 마지막 값
+  const bucket = new Map();
   for (const p of series) {
     const d = dayjs(p.x);
     if (!d.isValid()) continue;
-    let key;
     if (mode === "weekly") {
-      key = `${d.isoWeekYear()}-W${String(d.isoWeek()).padStart(2, "0")}`;
-      // 대표 날짜는 주 마지막 날로
-      const end = d.isoWeekYear() === d.add(6 - (d.isoWeekday() - 1), "day").isoWeekYear()
-        ? d.add(6 - (d.isoWeekday() - 1), "day")
-        : d.endOf("week");
-      bucketMap.set(key, { x: end.format("YYYY-MM-DD"), y: p.y });
+      const key = `${d.isoWeekYear()}-${d.isoWeek()}`;
+      const end = d.endOf("week");
+      bucket.set(key, { x: end.format("YYYY-MM-DD"), y: p.y });
     } else if (mode === "monthly") {
-      key = d.format("YYYY-MM");
-      bucketMap.set(key, { x: d.endOf("month").format("YYYY-MM-DD"), y: p.y });
+      const key = d.format("YYYY-MM");
+      bucket.set(key, { x: d.endOf("month").format("YYYY-MM-DD"), y: p.y });
     }
   }
-  const out = Array.from(bucketMap.values()).sort((a, b) => (a.x < b.x ? -1 : 1));
-  return out;
+  return Array.from(bucket.values()).sort((a, b) => (a.x < b.x ? -1 : 1));
 }
 
 function buildSeries(item, start, end, pickColIndex, mode = "none") {
@@ -95,29 +118,30 @@ function buildSeries(item, start, end, pickColIndex, mode = "none") {
   return decimate(sampled, 800);
 }
 
-/* ================= 차트 ================= */
+/* =============== 차트 =============== */
 function LineChart({ series, label, yAxis = "y" }) {
   const ref = useRef(null);
   const chartRef = useRef(null);
 
-  // y축 범위를 데이터 기반으로 강제
+  // 데이터 기반 축 범위
   const [min, max] = useMemo(() => {
     if (!series || !series.length) return [0, 1];
     let mn = Infinity, mx = -Infinity;
     for (const p of series) { if (p.y < mn) mn = p.y; if (p.y > mx) mx = p.y; }
     if (!Number.isFinite(mn) || !Number.isFinite(mx)) return [0, 1];
-    if (mn === mx) { mn -= 1; mx += 1; }     // 평평하면 범위 확보
-    const pad = (mx - mn) * 0.05;            // 5% 여백
+    if (mn === mx) { mn -= 1; mx += 1; }
+    const pad = Math.max(1e-6, (mx - mn) * 0.05);
     return [mn - pad, mx + pad];
   }, [series]);
 
   useEffect(() => {
-    if (!ref.current) return;
-    const ctx = ref.current.getContext("2d");
+    const el = ref.current;
+    if (!el) return;
+    const ctx = el.getContext("2d");
     if (chartRef.current) chartRef.current.destroy();
 
     if (!series || series.length === 0) {
-      ref.current.replaceWith(ref.current.cloneNode(true)); // 캔버스 리셋
+      el.replaceWith(el.cloneNode(true)); // 빈 데이터면 캔버스 리셋
       return;
     }
 
@@ -133,8 +157,8 @@ function LineChart({ series, label, yAxis = "y" }) {
         parsing: false,
         scales: {
           x: { ticks: { maxRotation: 0, autoSkip: true } },
-          [yAxis]: { position: yAxis === "y1" ? "right" : "left", suggestedMin: min, suggestedMax: max },
-          ...(yAxis === "y" ? { y1: { position: "right", grid: { drawOnChartArea: false } } } : {}),
+          [yAxis]: { type: "linear", position: yAxis === "y1" ? "right" : "left", suggestedMin: min, suggestedMax: max },
+          ...(yAxis === "y" ? { y1: { type: "linear", position: "right", grid: { drawOnChartArea: false } } } : {}),
         },
         elements: { line: { spanGaps: true } },
       },
@@ -155,18 +179,14 @@ function LineChart({ series, label, yAxis = "y" }) {
   return <canvas ref={ref} style={{ width: "100%", height: 300 }} />;
 }
 
-/* ================= 메인 ================= */
+/* =============== 메인 =============== */
 export default function App() {
   const { items, loading, error } = useHubData();
 
   const [start, setStart] = useState(() => dayjs("2021-01-01").format("YYYY-MM-DD"));
   const [end, setEnd] = useState(() => dayjs().format("YYYY-MM-DD"));
-
-  // 리샘플링: none / weekly / monthly
-  const [sampleMode, setSampleMode] = useState("none");
-
-  // 종목용 토글: close | volume | rsi
-  const [equityMode, setEquityMode] = useState("close");
+  const [sampleMode, setSampleMode] = useState("none");      // none | weekly | monthly
+  const [equityMode, setEquityMode] = useState("close");     // close | volume | rsi
 
   const allOk = useMemo(() => items.filter((it) => !it.error), [items]);
   const metrics = useMemo(() => allOk.filter((it) => it.type === "metric"), [allOk]);
@@ -184,15 +204,13 @@ export default function App() {
     return m;
   }, [allOk]);
 
-  // 종목 카드별 시리즈
   function equitySeries(item) {
     if (!item) return { label: item?.title || item?.key, series: [] };
     const headers = item.headers || [];
 
     if (equityMode === "volume") {
       const idx = findCol(headers, ["volume", "거래"]);
-      const s = buildSeries(item, start, end, idx >= 0 ? idx : undefined, sampleMode);
-      return { label: `${item.title || item.key} (Volume)`, series: s };
+      return { label: `${item.title || item.key} (Volume)`, series: buildSeries(item, start, end, idx, sampleMode) };
     }
     if (equityMode === "rsi") {
       const idx = findCol(headers, ["rsi", "rsi14"]);
@@ -202,13 +220,14 @@ export default function App() {
       const alt = rsiMap.get(String(item.key));
       if (alt) {
         const idx2 = findCol(alt.headers || [], ["rsi", "rsi14", "value", "close"]);
-        return { label: `${item.title || item.key} (RSI)`, series: buildSeries(alt, start, end, idx2 >= 0 ? idx2 : undefined, sampleMode) };
+        return { label: `${item.title || item.key} (RSI)`, series: buildSeries(alt, start, end, idx2, sampleMode) };
       }
+      // 대체: Close
       return { label: `${item.title || item.key} (Close*)`, series: buildSeries(item, start, end, undefined, sampleMode) };
     }
 
     const idx = findCol(headers, ["close", "price", "adj close", "value"]);
-    return { label: `${item.title || item.key}`, series: buildSeries(item, start, end, idx >= 0 ? idx : undefined, sampleMode) };
+    return { label: `${item.title || item.key}`, series: buildSeries(item, start, end, idx, sampleMode) };
   }
 
   if (loading) return <div style={{ padding: 24 }}>Loading…</div>;
