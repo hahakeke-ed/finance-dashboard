@@ -3,7 +3,7 @@ import { Chart } from "chart.js/auto";
 import dayjs from "dayjs";
 
 // ★ 필요하면 서버 응답을 가볍게: 뒤에 "?limit=2000" 같은 파라미터를 붙일 수 있어요.
-const HUB = "/.netlify/functions/sheets-hub";
+const HUB = "/.netlify/functions/sheets-hub?limit=2000";
 
 function useHubData() {
   const [data, setData] = useState({ items: [], loading: true, error: null });
