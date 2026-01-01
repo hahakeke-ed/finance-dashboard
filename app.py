@@ -170,14 +170,14 @@ st.info("데이터 로딩 오류를 방지하기 위해, 각 기관의 공식 �
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
     # [수정] KR 대문자 적용
-    st.markdown("#### 🇰🇷 KR 한국 수출입 통계")
+    st.markdown("#### KR 한국 수출입 통계")
     st.link_button("관세청 수출입 무역통계 보기", "https://unipass.customs.go.kr/ets/index.do")
 with col_m2:
-    st.markdown("#### 🌏 OECD 경기선행지수")
+    st.markdown("#### 🌏OECD경기선행지수")
     st.link_button("OECD Data (CLI) 바로가기", "https://data.oecd.org/leadind/composite-leading-indicator-cli.htm")
 with col_m3:
     # [수정] US 대문자 적용
-    st.markdown("#### 🇺🇸 US FRED (미 연준 데이터)")
+    st.markdown("#### US FRED")
     st.link_button("FRED 메인 페이지", "https://fred.stlouisfed.org/")
 
 st.markdown("---")
