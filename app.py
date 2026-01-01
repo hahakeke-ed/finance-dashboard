@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -176,5 +175,3 @@ if ticker_input:
             st.error(f"차트를 그리는 중 오류가 발생했습니다: {e}")
     else:
         st.error(f"'{ticker_input}' 데이터를 찾을 수 없습니다. 티커를 확인해주세요.")
-
-```
