@@ -76,7 +76,7 @@ selected_names = st.sidebar.multiselect(
     default=["삼성전자", "테슬라 (Tesla)", "엔비디아 (NVIDIA)"]
 )
 
-# [수정] 직접 입력 창 문구 변경
+# 직접 입력 창
 custom_input = st.sidebar.text_input(
     "2. 직접 코드 입력하여 추가(콤마 구분)", 
     placeholder="예: 000100.KS, PLTR"
@@ -107,12 +107,12 @@ memo = st.sidebar.text_area("매매 아이디어 / 할 일", height=200, placeho
 # -----------------------------------------------------------
 st.subheader("1️⃣ Market Pulse (시장 핵심 지표)")
 
-# [수정] 순서 변경 및 코스닥 추가
+# [수정] 요청하신 순서대로 완벽 정렬
 indices = {
     "S&P 500": "^GSPC",
     "나스닥": "^IXIC",
     "코스피": "^KS11",
-    "코스닥": "^KQ11",         # 추가됨
+    "코스닥": "^KQ11",
     "원/달러 환율": "KRW=X",
     "VIX (공포지수)": "^VIX",
     "국제 금값": "GC=F",     
@@ -124,6 +124,8 @@ cols = st.columns(3)
 
 for i, (name, ticker) in enumerate(indices.items()):
     data = get_stock_data(ticker, period="1y")
+    
+    # 3열 배치 (0,1,2, 0,1,2...)
     with cols[i % 3]:
         if not data.empty and len(data) > 1:
             try:
@@ -138,6 +140,7 @@ for i, (name, ticker) in enumerate(indices.items()):
                 
                 fig = go.Figure()
                 
+                # 라인 차트
                 fig.add_trace(go.Scatter(
                     x=data.index, 
                     y=data['Close'].iloc[:,0] if data['Close'].ndim>1 else data['Close'],
@@ -145,14 +148,14 @@ for i, (name, ticker) in enumerate(indices.items()):
                     line=dict(color=color, width=2)
                 ))
 
-                # [수정] 마지막 값 가로 점선 추가
+                # [점선] 현재가 가로 점선 추가
                 fig.add_hline(y=val, line_dash="dot", line_color=color, line_width=1, opacity=0.7)
 
-                # VIX 배경색 [수정: 최대값 80으로 조정]
+                # VIX 배경색 (최대 80으로 제한)
                 if "VIX" in name:
                     fig.add_hrect(y0=0, y1=20, fillcolor="green", opacity=0.1, layer="below")
                     fig.add_hrect(y0=20, y1=30, fillcolor="gray", opacity=0.1, layer="below")
-                    fig.add_hrect(y0=30, y1=80, fillcolor="red", opacity=0.1, layer="below") # 100 -> 80
+                    fig.add_hrect(y0=30, y1=80, fillcolor="red", opacity=0.1, layer="below")
 
                 fig.update_layout(
                     title=dict(text=f"<b>{name}</b> {val:,.2f} ({pct:+.2f}%)", font=dict(size=14)),
@@ -162,6 +165,9 @@ for i, (name, ticker) in enumerate(indices.items()):
                 )
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error(f"{name} 오류")
+        else:
+            # 데이터가 없을 때 경고 메시지 표시 (S&P 등 확인용)
+            st.warning(f"{name}: 데이터 로딩 중...")
 
 st.markdown("---")
 
@@ -228,7 +234,7 @@ else:
                 else:
                     title_text = f"<b>{stock_name}</b> ({ticker}) ${p_val:,.2f}"
 
-                # [수정] 마지막 값 가로 점선 추가 (Portfolio)
+                # [점선] 현재가 가로 점선 추가 (포트폴리오)
                 fig.add_hline(y=p_val, line_dash="dot", line_color="gray", line_width=1, opacity=0.7)
 
                 fig.update_layout(title=dict(text=title_text, font=dict(size=14)),
