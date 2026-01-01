@@ -6,9 +6,13 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # -----------------------------------------------------------
-# 1. 페이지 설정
+# 1. 페이지 설정 (반드시 코드 최상단에 딱 한 번만 있어야 합니다)
 # -----------------------------------------------------------
-st.set_page_config(page_title="경제 지표 & 포트폴리오 대시보드", layout="wide")
+st.set_page_config(
+    page_title="경제 지표 & 포트폴리오 대시보드", 
+    page_icon="📈", 
+    layout="wide"
+)
 
 st.markdown("""
 <style>
@@ -134,12 +138,12 @@ for i, (name, ticker) in enumerate(indices.items()):
                 
                 fig = go.Figure()
                 
-                # [수정] fill='tozeroy' 제거 -> Y축 자동 스케일링 활성화
+                # Y축 자동 스케일링 활성화
                 fig.add_trace(go.Scatter(
                     x=data.index, 
                     y=data['Close'].iloc[:,0] if data['Close'].ndim>1 else data['Close'],
                     mode='lines', name=name,
-                    line=dict(color=color, width=2) # 선 두께 약간 강조
+                    line=dict(color=color, width=2)
                 ))
 
                 # VIX 배경색
@@ -149,10 +153,8 @@ for i, (name, ticker) in enumerate(indices.items()):
                     fig.add_hrect(y0=30, y1=100, fillcolor="red", opacity=0.1, layer="below")
 
                 fig.update_layout(
-                    # [수정] 글자 크기 14로 축소
                     title=dict(text=f"<b>{name}</b> {val:,.2f} ({pct:+.2f}%)", font=dict(size=14)),
                     margin=dict(l=10, r=10, t=30, b=20), height=200,
-                    # [수정] Y축 0 시작 방지 (autorange=True)
                     yaxis=dict(showgrid=True, autorange=True, fixedrange=False), 
                     xaxis=dict(visible=True, showgrid=False, tickformat="%y.%m", tickfont=dict(size=10))
                 )
@@ -169,15 +171,15 @@ st.info("데이터 로딩 오류를 방지하기 위해, 각 기관의 공식 �
 
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
-    # [수정] KR 대문자 적용
-    st.markdown("#### KR 한국 수출입 통계")
+    # KR 대문자 적용 확인
+    st.markdown("#### 🇰🇷 KR 한국 수출입 통계")
     st.link_button("관세청 수출입 무역통계 보기", "https://unipass.customs.go.kr/ets/index.do")
 with col_m2:
-    st.markdown("#### 🌏OECD경기선행지수")
+    st.markdown("#### 🌏 OECD 경기선행지수")
     st.link_button("OECD Data (CLI) 바로가기", "https://data.oecd.org/leadind/composite-leading-indicator-cli.htm")
 with col_m3:
-    # [수정] US 대문자 적용
-    st.markdown("#### US FRED")
+    # US 대문자 적용 확인
+    st.markdown("#### 🇺🇸 US FRED (미 연준 데이터)")
     st.link_button("FRED 메인 페이지", "https://fred.stlouisfed.org/")
 
 st.markdown("---")
@@ -219,10 +221,8 @@ else:
                 last_p = df['Close'].iloc[-1]
                 p_val = last_p.item() if hasattr(last_p, 'item') else last_p
                 
-                # 1. 이름 찾기
                 stock_name = ticker_to_name.get(ticker, ticker)
                 
-                # 2. 가격 포맷
                 if "KS" in ticker or "KQ" in ticker:
                     title_text = f"<b>{stock_name}</b> ({ticker}) {p_val:,.0f} KRW"
                 else:
