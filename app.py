@@ -35,119 +35,51 @@ def get_stock_data(ticker, period='1y'):
     except:
         return pd.DataFrame()
 
-@st.cache_data
-def get_fred_data_robust(series_id):
-    try:
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-        storage_options = {'User-Agent': 'Mozilla/5.0'}
-        df = pd.read_csv(url, index_col='DATE', parse_dates=True, storage_options=storage_options)
-        start_date = datetime.now() - timedelta(days=365*5)
-        return df[df.index > start_date]
-    except:
-        return None
-
 # -----------------------------------------------------------
-# 3. 사이드바: 확장된 종목 리스트
+# 3. 사이드바: 종목 설정 & 메모장
 # -----------------------------------------------------------
 st.sidebar.header("🔍 관심 종목 설정")
 
-# 핵심 인기 종목 100선 (한국/미국/ETF)
+# 핵심 인기 종목 100선
 popular_stocks = {
-    # === 한국 코스피 (대형주) ===
-    "삼성전자": "005930.KS",
-    "SK하이닉스": "000660.KS",
-    "LG에너지솔루션": "373220.KS",
-    "삼성바이오로직스": "207940.KS",
-    "현대차": "005380.KS",
-    "기아": "000270.KS",
-    "셀트리온": "068270.KS",
-    "KB금융": "105560.KS",
-    "POSCO홀딩스": "005490.KS",
-    "NAVER": "035420.KS",
-    "카카오": "035720.KS",
-    "신한지주": "055550.KS",
-    "삼성물산": "028260.KS",
-    "현대모비스": "012330.KS",
-    "LG화학": "051910.KS",
-    "삼성SDI": "006400.KS",
-    "하나금융지주": "086790.KS",
-    "메리츠금융지주": "138040.KS",
-    "LG전자": "066570.KS",
-    "두산에너빌리티": "034020.KS",
-    "HMM": "011200.KS",
-    "한화에어로스페이스": "012450.KS",
-    "HD현대중공업": "329180.KS",
-    "크래프톤": "259960.KS",
-    "SK텔레콤": "017670.KS",
-    "우리금융지주": "316140.KS",
-    "KT": "030200.KS",
-    "기업은행": "024110.KS",
-    
-    # === 한국 코스닥 (대장주) ===
-    "알테오젠": "196170.KQ",
-    "에코프로비엠": "247540.KQ",
-    "에코프로": "086520.KQ",
-    "HLB": "028300.KQ",
-    "리가켐바이오": "141080.KQ",
-    "클래시스": "214150.KQ",
-    "엔켐": "348370.KQ",
-    "휴젤": "145020.KQ",
-    "리노공업": "058470.KQ",
-    "삼천당제약": "000250.KQ",
-    "레인보우로보틱스": "277810.KQ",
-    "HPSP": "403870.KQ",
-    "JYP Ent.": "035900.KQ",
-    "펄어비스": "263750.KQ",
-
-    # === 미국 빅테크 (M7 + 주요주) ===
-    "애플 (Apple)": "AAPL",
-    "마이크로소프트 (MSFT)": "MSFT",
-    "엔비디아 (NVIDIA)": "NVDA",
-    "구글 (Alphabet A)": "GOOGL",
-    "아마존 (Amazon)": "AMZN",
-    "테슬라 (Tesla)": "TSLA",
-    "메타 (Meta)": "META",
-    "브로드컴 (Broadcom)": "AVGO",
-    "TSMC (ADR)": "TSM",
-    "일라이릴리 (Lilly)": "LLY",
-    "노보노디스크 (Novo)": "NVO",
-    "ASML": "ASML",
-    "AMD": "AMD",
-    "넷플릭스": "NFLX",
-    "코스트코": "COST",
-    "인텔": "INTC",
-    "마이크론": "MU",
-    "팔란티어": "PLTR",
-    "코인베이스": "COIN",
-    "아이온큐": "IONQ",
-    "유니티": "U",
-    
-    # === 주요 ETF (지수/레버리지) ===
-    "S&P 500 (SPY)": "SPY",
-    "나스닥 100 (QQQ)": "QQQ",
-    "필라델피아 반도체 (SOXX)": "SOXX",
-    "반도체 3배 (SOXL)": "SOXL",
-    "나스닥 3배 (TQQQ)": "TQQQ",
-    "테슬라 1.5배 (TSLL)": "TSLL",
-    "배당성장 (SCHD)": "SCHD",
-    "월배당 커버드콜 (JEPI)": "JEPI",
-    "비트코인 현물 ETF (IBIT)": "IBIT"
+    # 한국 코스피
+    "삼성전자": "005930.KS", "SK하이닉스": "000660.KS", "LG에너지솔루션": "373220.KS",
+    "삼성바이오로직스": "207940.KS", "현대차": "005380.KS", "기아": "000270.KS",
+    "POSCO홀딩스": "005490.KS", "NAVER": "035420.KS", "카카오": "035720.KS",
+    "삼성물산": "028260.KS", "KB금융": "105560.KS", "신한지주": "055550.KS",
+    "셀트리온": "068270.KS", "LG화학": "051910.KS", "삼성SDI": "006400.KS",
+    # 한국 코스닥
+    "알테오젠": "196170.KQ", "에코프로비엠": "247540.KQ", "에코프로": "086520.KQ",
+    "HLB": "028300.KQ", "리가켐바이오": "141080.KQ", "클래시스": "214150.KQ",
+    "엔켐": "348370.KQ", "휴젤": "145020.KQ", "리노공업": "058470.KQ",
+    # 미국 빅테크
+    "애플 (Apple)": "AAPL", "마이크로소프트 (MSFT)": "MSFT", "엔비디아 (NVIDIA)": "NVDA",
+    "구글 (Alphabet)": "GOOGL", "아마존 (Amazon)": "AMZN", "테슬라 (Tesla)": "TSLA",
+    "메타 (Meta)": "META", "TSMC (TSM)": "TSM", "AMD": "AMD", "브로드컴": "AVGO",
+    "넷플릭스": "NFLX", "인텔": "INTC", "마이크론": "MU", "팔란티어": "PLTR",
+    # ETF
+    "S&P 500 (SPY)": "SPY", "나스닥 100 (QQQ)": "QQQ", 
+    "필라델피아 반도체 (SOXX)": "SOXX", "반도체 3배 (SOXL)": "SOXL", "나스닥 3배 (TQQQ)": "TQQQ",
+    "배당성장 (SCHD)": "SCHD", "커버드콜 (JEPI)": "JEPI", "비트코인 ETF (IBIT)": "IBIT"
 }
+
+# [핵심] 코드로 이름을 찾기 위한 '역방향 사전' 만들기
+ticker_to_name = {v: k for k, v in popular_stocks.items()}
 
 # 멀티 선택 박스
 selected_names = st.sidebar.multiselect(
-    "1. 주요 인기 종목 선택 (검색 가능)",
+    "1. 주요 인기 종목 선택",
     options=list(popular_stocks.keys()),
     default=["삼성전자", "테슬라 (Tesla)", "엔비디아 (NVIDIA)"]
 )
 
 # 직접 입력 창
 custom_input = st.sidebar.text_input(
-    "2. 리스트에 없는 종목 직접 입력", 
-    placeholder="예: 000100.KS, SOFI, NVDL"
+    "2. 직접 코드 입력 (콤마 구분)", 
+    placeholder="예: 000100.KS, PLTR"
 )
 
-# 최종 종목 리스트 만들기
+# 최종 종목 리스트 생성
 final_tickers = []
 for name in selected_names:
     final_tickers.append(popular_stocks[name])
@@ -156,16 +88,19 @@ if custom_input:
     custom_list = [x.strip() for x in custom_input.split(',')]
     final_tickers.extend(custom_list)
 
-# 최대 6개 제한 및 경고
 if len(final_tickers) > 6:
-    st.sidebar.warning("⚠️ 종목이 6개를 넘으면 속도가 느려질 수 있어 앞쪽 6개만 표시합니다.")
+    st.sidebar.warning("⚠️ 속도를 위해 6개까지만 표시합니다.")
     final_tickers = final_tickers[:6]
 
 st.sidebar.markdown("---")
-st.sidebar.caption("※ PC화면 최적화: 차트는 마우스로 확대/축소 가능합니다.")
+
+# === 메모장 기능 ===
+st.sidebar.header("📝 간단 메모장")
+st.sidebar.caption("※ 주의: 탭을 닫거나 새로고침하면 내용이 사라집니다.")
+memo = st.sidebar.text_area("매매 아이디어 / 할 일", height=200, placeholder="여기에 메모를 입력하세요...")
 
 # -----------------------------------------------------------
-# 4. [SECTION 1] Market Pulse (3열 라인 차트)
+# 4. [SECTION 1] Market Pulse (시장 핵심 지표)
 # -----------------------------------------------------------
 st.subheader("1️⃣ Market Pulse (시장 핵심 지표)")
 
@@ -173,6 +108,8 @@ indices = {
     "달러 인덱스": "DX-Y.NYB",
     "원/달러 환율": "KRW=X",
     "VIX (공포지수)": "^VIX",
+    "국제 금값": "GC=F",     
+    "WTI 원유": "CL=F",      
     "S&P 500": "^GSPC",
     "나스닥": "^IXIC",
     "코스피": "^KS11",
@@ -186,7 +123,7 @@ for i, (name, ticker) in enumerate(indices.items()):
     with cols[i % 3]:
         if not data.empty and len(data) > 1:
             try:
-                # 데이터 값 추출 (호환성)
+                # 데이터 값 추출
                 last_val = data['Close'].iloc[-1]
                 prev_val = data['Close'].iloc[-2]
                 val = last_val.item() if hasattr(last_val, 'item') else last_val
@@ -196,6 +133,8 @@ for i, (name, ticker) in enumerate(indices.items()):
                 color = "red" if pct >= 0 else "blue"
                 
                 fig = go.Figure()
+                
+                # 라인 차트
                 fig.add_trace(go.Scatter(
                     x=data.index, 
                     y=data['Close'].iloc[:,0] if data['Close'].ndim>1 else data['Close'],
@@ -203,10 +142,18 @@ for i, (name, ticker) in enumerate(indices.items()):
                     line=dict(color=color, width=1.5),
                     fill='tozeroy', fillcolor=f"rgba({'255,0,0' if pct>=0 else '0,0,255'}, 0.1)"
                 ))
+
+                # VIX 배경색
+                if "VIX" in name:
+                    fig.add_hrect(y0=0, y1=20, fillcolor="green", opacity=0.1, layer="below")
+                    fig.add_hrect(y0=20, y1=30, fillcolor="gray", opacity=0.1, layer="below")
+                    fig.add_hrect(y0=30, y1=100, fillcolor="red", opacity=0.1, layer="below")
+
                 fig.update_layout(
                     title=f"<b>{name}</b> {val:,.2f} ({pct:+.2f}%)",
-                    margin=dict(l=10, r=10, t=40, b=20), height=200,
-                    xaxis=dict(visible=False), yaxis=dict(showgrid=False)
+                    margin=dict(l=10, r=10, t=40, b=20), height=250,
+                    yaxis=dict(showgrid=True, autorange=True, fixedrange=False), 
+                    xaxis=dict(visible=True, showgrid=False, tickformat="%Y-%m")
                 )
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error(f"{name} 오류")
@@ -216,27 +163,19 @@ st.markdown("---")
 # -----------------------------------------------------------
 # 5. [SECTION 2] 거시경제
 # -----------------------------------------------------------
-st.subheader("2️⃣ Macro Trends (거시 경제 흐름)")
-tab1, tab2 = st.tabs(["OECD 경기선행지수", "한국 수출액"])
+st.subheader("2️⃣ Macro Trends (주요 경제 사이트 바로가기)")
+st.info("데이터 로딩 오류를 방지하기 위해, 각 기관의 공식 데이터 페이지로 직접 연결합니다.")
 
-k_cli = get_fred_data_robust('LOLITOAKRM156S')
-us_cli = get_fred_data_robust('LOLITONOUSM156S')
-k_exp = get_fred_data_robust('XTEXVA01KRM667S')
-
-with tab1:
-    if k_cli is not None and us_cli is not None:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=k_cli.index, y=k_cli.iloc[:,0], name='한국', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=us_cli.index, y=us_cli.iloc[:,0], name='미국', line=dict(color='red')))
-        fig.add_hline(y=100, line_dash="dash", line_color="gray")
-        fig.update_layout(height=400, title="OECD 경기선행지수 (최근 5년)", hovermode="x unified")
-        st.plotly_chart(fig, use_container_width=True)
-    else: st.error("데이터 로딩 실패 (FRED)")
-
-with tab2:
-    if k_exp is not None:
-        st.plotly_chart(go.Figure(data=[go.Bar(x=k_exp.index, y=k_exp.iloc[:,0], marker_color='green')], 
-                                  layout=dict(title="한국 월별 수출액 (USD)", height=400)), use_container_width=True)
+col_m1, col_m2, col_m3 = st.columns(3)
+with col_m1:
+    st.markdown("#### 🇰🇷 한국 수출입 통계")
+    st.link_button("관세청 수출입 무역통계 보기", "https://unipass.customs.go.kr/ets/index.do")
+with col_m2:
+    st.markdown("#### 🌏 OECD 경기선행지수")
+    st.link_button("OECD Data (CLI) 바로가기", "https://data.oecd.org/leadind/composite-leading-indicator-cli.htm")
+with col_m3:
+    st.markdown("#### 🇺🇸 FRED (미 연준 데이터)")
+    st.link_button("FRED 메인 페이지", "https://fred.stlouisfed.org/")
 
 st.markdown("---")
 
@@ -273,10 +212,20 @@ else:
                 colors = ['red' if o < c else 'blue' for o, c in zip(df_w['Open'], df_w['Close'])]
                 fig.add_trace(go.Bar(x=df_w.index, y=df_w['Volume'], marker_color=colors, name="거래량"), row=2, col=1)
                 
+                # [수정] 차트 제목에 '종목 이름' 표시 로직
                 last_p = df['Close'].iloc[-1]
                 p_val = last_p.item() if hasattr(last_p, 'item') else last_p
                 
-                fig.update_layout(title=f"<b>{ticker}</b> {p_val:,.0f}" if "KS" in ticker or "KQ" in ticker else f"<b>{ticker}</b> ${p_val:,.2f}",
+                # 1. 이름 찾기 (리스트에 없으면 코드 그대로 사용)
+                stock_name = ticker_to_name.get(ticker, ticker)
+                
+                # 2. 가격 포맷 (한국은 원, 미국은 달러)
+                if "KS" in ticker or "KQ" in ticker:
+                    title_text = f"<b>{stock_name}</b> ({ticker}) {p_val:,.0f} KRW"
+                else:
+                    title_text = f"<b>{stock_name}</b> ({ticker}) ${p_val:,.2f}"
+
+                fig.update_layout(title=title_text,
                                   height=400, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(t=40,b=20,l=10,r=10))
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
