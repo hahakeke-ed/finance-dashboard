@@ -134,13 +134,12 @@ for i, (name, ticker) in enumerate(indices.items()):
                 
                 fig = go.Figure()
                 
-                # 라인 차트
+                # [수정] fill='tozeroy' 제거 -> Y축 자동 스케일링 활성화
                 fig.add_trace(go.Scatter(
                     x=data.index, 
                     y=data['Close'].iloc[:,0] if data['Close'].ndim>1 else data['Close'],
                     mode='lines', name=name,
-                    line=dict(color=color, width=1.5),
-                    fill='tozeroy', fillcolor=f"rgba({'255,0,0' if pct>=0 else '0,0,255'}, 0.1)"
+                    line=dict(color=color, width=2) # 선 두께 약간 강조
                 ))
 
                 # VIX 배경색
@@ -150,10 +149,12 @@ for i, (name, ticker) in enumerate(indices.items()):
                     fig.add_hrect(y0=30, y1=100, fillcolor="red", opacity=0.1, layer="below")
 
                 fig.update_layout(
-                    title=f"<b>{name}</b> {val:,.2f} ({pct:+.2f}%)",
-                    margin=dict(l=10, r=10, t=40, b=20), height=250,
+                    # [수정] 글자 크기 14로 축소
+                    title=dict(text=f"<b>{name}</b> {val:,.2f} ({pct:+.2f}%)", font=dict(size=14)),
+                    margin=dict(l=10, r=10, t=30, b=20), height=200,
+                    # [수정] Y축 0 시작 방지 (autorange=True)
                     yaxis=dict(showgrid=True, autorange=True, fixedrange=False), 
-                    xaxis=dict(visible=True, showgrid=False, tickformat="%Y-%m")
+                    xaxis=dict(visible=True, showgrid=False, tickformat="%y.%m", tickfont=dict(size=10))
                 )
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error(f"{name} 오류")
@@ -168,13 +169,15 @@ st.info("데이터 로딩 오류를 방지하기 위해, 각 기관의 공식 �
 
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
-    st.markdown("#### 🇰🇷 한국 수출입 통계")
+    # [수정] KR 대문자 적용
+    st.markdown("#### 🇰🇷 KR 한국 수출입 통계")
     st.link_button("관세청 수출입 무역통계 보기", "https://unipass.customs.go.kr/ets/index.do")
 with col_m2:
     st.markdown("#### 🌏 OECD 경기선행지수")
     st.link_button("OECD Data (CLI) 바로가기", "https://data.oecd.org/leadind/composite-leading-indicator-cli.htm")
 with col_m3:
-    st.markdown("#### 🇺🇸 FRED (미 연준 데이터)")
+    # [수정] US 대문자 적용
+    st.markdown("#### 🇺🇸 US FRED (미 연준 데이터)")
     st.link_button("FRED 메인 페이지", "https://fred.stlouisfed.org/")
 
 st.markdown("---")
@@ -212,20 +215,20 @@ else:
                 colors = ['red' if o < c else 'blue' for o, c in zip(df_w['Open'], df_w['Close'])]
                 fig.add_trace(go.Bar(x=df_w.index, y=df_w['Volume'], marker_color=colors, name="거래량"), row=2, col=1)
                 
-                # [수정] 차트 제목에 '종목 이름' 표시 로직
+                # 차트 제목에 '종목 이름' 표시 로직
                 last_p = df['Close'].iloc[-1]
                 p_val = last_p.item() if hasattr(last_p, 'item') else last_p
                 
-                # 1. 이름 찾기 (리스트에 없으면 코드 그대로 사용)
+                # 1. 이름 찾기
                 stock_name = ticker_to_name.get(ticker, ticker)
                 
-                # 2. 가격 포맷 (한국은 원, 미국은 달러)
+                # 2. 가격 포맷
                 if "KS" in ticker or "KQ" in ticker:
                     title_text = f"<b>{stock_name}</b> ({ticker}) {p_val:,.0f} KRW"
                 else:
                     title_text = f"<b>{stock_name}</b> ({ticker}) ${p_val:,.2f}"
 
-                fig.update_layout(title=title_text,
+                fig.update_layout(title=dict(text=title_text, font=dict(size=14)),
                                   height=400, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(t=40,b=20,l=10,r=10))
                 st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
