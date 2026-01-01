@@ -67,7 +67,6 @@ popular_stocks = {
     "배당성장 (SCHD)": "SCHD", "커버드콜 (JEPI)": "JEPI", "비트코인 ETF (IBIT)": "IBIT"
 }
 
-# [핵심] 코드로 이름을 찾기 위한 '역방향 사전' 만들기
 ticker_to_name = {v: k for k, v in popular_stocks.items()}
 
 # 멀티 선택 박스
@@ -77,9 +76,9 @@ selected_names = st.sidebar.multiselect(
     default=["삼성전자", "테슬라 (Tesla)", "엔비디아 (NVIDIA)"]
 )
 
-# 직접 입력 창
+# [수정] 직접 입력 창 문구 변경
 custom_input = st.sidebar.text_input(
-    "2. 직접 코드 입력 (콤마 구분)", 
+    "2. 직접 코드 입력하여 추가(콤마 구분)", 
     placeholder="예: 000100.KS, PLTR"
 )
 
@@ -108,15 +107,16 @@ memo = st.sidebar.text_area("매매 아이디어 / 할 일", height=200, placeho
 # -----------------------------------------------------------
 st.subheader("1️⃣ Market Pulse (시장 핵심 지표)")
 
+# [수정] 순서 변경 및 코스닥 추가
 indices = {
-    "달러 인덱스": "DX-Y.NYB",
+    "S&P 500": "^GSPC",
+    "나스닥": "^IXIC",
+    "코스피": "^KS11",
+    "코스닥": "^KQ11",         # 추가됨
     "원/달러 환율": "KRW=X",
     "VIX (공포지수)": "^VIX",
     "국제 금값": "GC=F",     
     "WTI 원유": "CL=F",      
-    "S&P 500": "^GSPC",
-    "나스닥": "^IXIC",
-    "코스피": "^KS11",
     "비트코인": "BTC-USD"
 }
 
@@ -138,7 +138,6 @@ for i, (name, ticker) in enumerate(indices.items()):
                 
                 fig = go.Figure()
                 
-                # Y축 자동 스케일링 활성화
                 fig.add_trace(go.Scatter(
                     x=data.index, 
                     y=data['Close'].iloc[:,0] if data['Close'].ndim>1 else data['Close'],
@@ -146,11 +145,14 @@ for i, (name, ticker) in enumerate(indices.items()):
                     line=dict(color=color, width=2)
                 ))
 
-                # VIX 배경색
+                # [수정] 마지막 값 가로 점선 추가
+                fig.add_hline(y=val, line_dash="dot", line_color=color, line_width=1, opacity=0.7)
+
+                # VIX 배경색 [수정: 최대값 80으로 조정]
                 if "VIX" in name:
                     fig.add_hrect(y0=0, y1=20, fillcolor="green", opacity=0.1, layer="below")
                     fig.add_hrect(y0=20, y1=30, fillcolor="gray", opacity=0.1, layer="below")
-                    fig.add_hrect(y0=30, y1=100, fillcolor="red", opacity=0.1, layer="below")
+                    fig.add_hrect(y0=30, y1=80, fillcolor="red", opacity=0.1, layer="below") # 100 -> 80
 
                 fig.update_layout(
                     title=dict(text=f"<b>{name}</b> {val:,.2f} ({pct:+.2f}%)", font=dict(size=14)),
@@ -171,14 +173,12 @@ st.info("데이터 로딩 오류를 방지하기 위해, 각 기관의 공식 �
 
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
-    # KR 대문자 적용 확인
     st.markdown("#### 🇰🇷 KR 한국 수출입 통계")
     st.link_button("관세청 수출입 무역통계 보기", "https://unipass.customs.go.kr/ets/index.do")
 with col_m2:
     st.markdown("#### 🌏 OECD 경기선행지수")
     st.link_button("OECD Data (CLI) 바로가기", "https://data.oecd.org/leadind/composite-leading-indicator-cli.htm")
 with col_m3:
-    # US 대문자 적용 확인
     st.markdown("#### 🇺🇸 US FRED (미 연준 데이터)")
     st.link_button("FRED 메인 페이지", "https://fred.stlouisfed.org/")
 
@@ -217,7 +217,7 @@ else:
                 colors = ['red' if o < c else 'blue' for o, c in zip(df_w['Open'], df_w['Close'])]
                 fig.add_trace(go.Bar(x=df_w.index, y=df_w['Volume'], marker_color=colors, name="거래량"), row=2, col=1)
                 
-                # 차트 제목에 '종목 이름' 표시 로직
+                # 차트 제목 로직
                 last_p = df['Close'].iloc[-1]
                 p_val = last_p.item() if hasattr(last_p, 'item') else last_p
                 
@@ -227,6 +227,9 @@ else:
                     title_text = f"<b>{stock_name}</b> ({ticker}) {p_val:,.0f} KRW"
                 else:
                     title_text = f"<b>{stock_name}</b> ({ticker}) ${p_val:,.2f}"
+
+                # [수정] 마지막 값 가로 점선 추가 (Portfolio)
+                fig.add_hline(y=p_val, line_dash="dot", line_color="gray", line_width=1, opacity=0.7)
 
                 fig.update_layout(title=dict(text=title_text, font=dict(size=14)),
                                   height=400, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(t=40,b=20,l=10,r=10))
