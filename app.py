@@ -34,6 +34,7 @@ st.markdown("거시경제 흐름과 나의 관심 종목을 한눈에 비교 분
 @st.cache_data
 def get_stock_data(ticker, period='1y'):
     try:
+        # progress=False로 설정하여 불필요한 출력 방지
         df = yf.download(ticker, period=period, progress=False)
         return df
     except:
@@ -107,9 +108,9 @@ memo = st.sidebar.text_area("매매 아이디어 / 할 일", height=200, placeho
 # -----------------------------------------------------------
 st.subheader("1️⃣ Market Pulse (시장 핵심 지표)")
 
-# [수정] S&P 500을 ETF(SPY)로 교체하여 로딩 오류 해결
+# [수정] S&P 500을 IVV(iShares ETF)로 변경하여 차단 회피
 indices = {
-    "S&P 500 (ETF)": "SPY",   # ^GSPC 대신 SPY 사용
+    "S&P 500 (ETF)": "IVV",   # SPY -> IVV 로 변경 (BlackRock S&P 500 ETF)
     "나스닥": "^IXIC",
     "코스피": "^KS11",
     "코스닥": "^KQ11",
@@ -147,7 +148,7 @@ for i, (name, ticker) in enumerate(indices.items()):
                     line=dict(color=color, width=2)
                 ))
 
-                # [점선] 현재가 가로 점선 추가
+                # 현재가 가로 점선 추가
                 fig.add_hline(y=val, line_dash="dot", line_color=color, line_width=1, opacity=0.7)
 
                 # VIX 배경색 (최대 80으로 제한)
@@ -165,7 +166,8 @@ for i, (name, ticker) in enumerate(indices.items()):
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error(f"{name} 오류")
         else:
-            st.warning(f"{name}: 데이터 로딩 실패")
+            # 데이터 로딩 실패 시 메시지
+            st.warning(f"{name}: 데이터 로딩 실패 (잠시 후 다시 시도)")
 
 st.markdown("---")
 
@@ -232,7 +234,7 @@ else:
                 else:
                     title_text = f"<b>{stock_name}</b> ({ticker}) ${p_val:,.2f}"
 
-                # [점선] 현재가 가로 점선 추가 (포트폴리오)
+                # 현재가 가로 점선 추가 (포트폴리오)
                 fig.add_hline(y=p_val, line_dash="dot", line_color="gray", line_width=1, opacity=0.7)
 
                 fig.update_layout(title=dict(text=title_text, font=dict(size=14)),
