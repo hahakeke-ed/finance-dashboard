@@ -107,9 +107,9 @@ memo = st.sidebar.text_area("매매 아이디어 / 할 일", height=200, placeho
 # -----------------------------------------------------------
 st.subheader("1️⃣ Market Pulse (시장 핵심 지표)")
 
-# [수정] 요청하신 순서대로 완벽 정렬
+# [수정] S&P 500을 ETF(SPY)로 교체하여 로딩 오류 해결
 indices = {
-    "S&P 500": "^GSPC",
+    "S&P 500 (ETF)": "SPY",   # ^GSPC 대신 SPY 사용
     "나스닥": "^IXIC",
     "코스피": "^KS11",
     "코스닥": "^KQ11",
@@ -125,7 +125,6 @@ cols = st.columns(3)
 for i, (name, ticker) in enumerate(indices.items()):
     data = get_stock_data(ticker, period="1y")
     
-    # 3열 배치 (0,1,2, 0,1,2...)
     with cols[i % 3]:
         if not data.empty and len(data) > 1:
             try:
@@ -166,8 +165,7 @@ for i, (name, ticker) in enumerate(indices.items()):
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error(f"{name} 오류")
         else:
-            # 데이터가 없을 때 경고 메시지 표시 (S&P 등 확인용)
-            st.warning(f"{name}: 데이터 로딩 중...")
+            st.warning(f"{name}: 데이터 로딩 실패")
 
 st.markdown("---")
 
