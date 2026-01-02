@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # -----------------------------------------------------------
-# 1. 페이지 설정 (반드시 코드 최상단에 딱 한 번만 있어야 합니다)
+# 1. 페이지 설정 (반드시 코드 최상단)
 # -----------------------------------------------------------
 st.set_page_config(
     page_title="경제 지표 & 포트폴리오 대시보드", 
@@ -29,19 +29,34 @@ st.title("📊 Economic & Portfolio Dashboard")
 st.markdown("거시경제 흐름과 나의 관심 종목을 한눈에 비교 분석합니다.")
 
 # -----------------------------------------------------------
-# 2. 데이터 수집 함수
+# 2. 데이터 수집 및 이름 찾기 함수
 # -----------------------------------------------------------
 @st.cache_data
 def get_stock_data(ticker, period='1y'):
     try:
-        # progress=False로 설정하여 불필요한 출력 방지
         df = yf.download(ticker, period=period, progress=False)
         return df
     except:
         return pd.DataFrame()
 
+@st.cache_data
+def get_stock_name(ticker):
+    """
+    종목 코드를 넣으면 회사 이름을 찾아오는 함수
+    (직접 입력한 종목의 이름을 표시하기 위함)
+    """
+    try:
+        # 1. 야후 파이낸스에서 종목 정보 가져오기
+        ticker_obj = yf.Ticker(ticker)
+        info = ticker_obj.info
+        
+        # 2. 짧은 이름(shortName)이나 긴 이름(longName) 반환
+        return info.get('shortName') or info.get('longName') or ticker
+    except:
+        return ticker
+
 # -----------------------------------------------------------
-# 3. 사이드바: 종목 설정 & 메모장
+# 3. 사이드바: 종목 설정
 # -----------------------------------------------------------
 st.sidebar.header("🔍 관심 종목 설정")
 
@@ -108,9 +123,9 @@ memo = st.sidebar.text_area("매매 아이디어 / 할 일", height=200, placeho
 # -----------------------------------------------------------
 st.subheader("1️⃣ Market Pulse (시장 핵심 지표)")
 
-# [수정] S&P 500을 IVV(iShares ETF)로 변경하여 차단 회피
+# [수정] S&P 500을 '선물 지수(ES=F)'로 변경 (금/원유와 동일 방식)
 indices = {
-    "S&P 500 (ETF)": "IVV",   # SPY -> IVV 로 변경 (BlackRock S&P 500 ETF)
+    "S&P 500 (선물)": "ES=F",  # 가장 강력한 해결책: 선물 데이터 사용
     "나스닥": "^IXIC",
     "코스피": "^KS11",
     "코스닥": "^KQ11",
@@ -129,7 +144,6 @@ for i, (name, ticker) in enumerate(indices.items()):
     with cols[i % 3]:
         if not data.empty and len(data) > 1:
             try:
-                # 데이터 값 추출
                 last_val = data['Close'].iloc[-1]
                 prev_val = data['Close'].iloc[-2]
                 val = last_val.item() if hasattr(last_val, 'item') else last_val
@@ -139,19 +153,14 @@ for i, (name, ticker) in enumerate(indices.items()):
                 color = "red" if pct >= 0 else "blue"
                 
                 fig = go.Figure()
-                
-                # 라인 차트
                 fig.add_trace(go.Scatter(
                     x=data.index, 
                     y=data['Close'].iloc[:,0] if data['Close'].ndim>1 else data['Close'],
                     mode='lines', name=name,
                     line=dict(color=color, width=2)
                 ))
-
-                # 현재가 가로 점선 추가
                 fig.add_hline(y=val, line_dash="dot", line_color=color, line_width=1, opacity=0.7)
 
-                # VIX 배경색 (최대 80으로 제한)
                 if "VIX" in name:
                     fig.add_hrect(y0=0, y1=20, fillcolor="green", opacity=0.1, layer="below")
                     fig.add_hrect(y0=20, y1=30, fillcolor="gray", opacity=0.1, layer="below")
@@ -166,8 +175,7 @@ for i, (name, ticker) in enumerate(indices.items()):
                 st.plotly_chart(fig, use_container_width=True)
             except: st.error(f"{name} 오류")
         else:
-            # 데이터 로딩 실패 시 메시지
-            st.warning(f"{name}: 데이터 로딩 실패 (잠시 후 다시 시도)")
+            st.warning(f"{name}: 로딩 중...")
 
 st.markdown("---")
 
@@ -175,8 +183,6 @@ st.markdown("---")
 # 5. [SECTION 2] 거시경제
 # -----------------------------------------------------------
 st.subheader("2️⃣ Macro Trends (주요 경제 사이트 바로가기)")
-st.info("데이터 로딩 오류를 방지하기 위해, 각 기관의 공식 데이터 페이지로 직접 연결합니다.")
-
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
     st.markdown("#### 🇰🇷 KR 한국 수출입 통계")
@@ -223,18 +229,22 @@ else:
                 colors = ['red' if o < c else 'blue' for o, c in zip(df_w['Open'], df_w['Close'])]
                 fig.add_trace(go.Bar(x=df_w.index, y=df_w['Volume'], marker_color=colors, name="거래량"), row=2, col=1)
                 
-                # 차트 제목 로직
+                # [수정] 종목 이름 자동 찾기 로직 적용
                 last_p = df['Close'].iloc[-1]
                 p_val = last_p.item() if hasattr(last_p, 'item') else last_p
                 
-                stock_name = ticker_to_name.get(ticker, ticker)
+                # 1. 미리 정의된 리스트에서 찾기
+                stock_name = ticker_to_name.get(ticker)
+                
+                # 2. 없으면 야후 파이낸스에서 검색 (직접 입력 종목 대응)
+                if not stock_name:
+                    stock_name = get_stock_name(ticker) # 새로 만든 함수 사용!
                 
                 if "KS" in ticker or "KQ" in ticker:
                     title_text = f"<b>{stock_name}</b> ({ticker}) {p_val:,.0f} KRW"
                 else:
                     title_text = f"<b>{stock_name}</b> ({ticker}) ${p_val:,.2f}"
 
-                # 현재가 가로 점선 추가 (포트폴리오)
                 fig.add_hline(y=p_val, line_dash="dot", line_color="gray", line_width=1, opacity=0.7)
 
                 fig.update_layout(title=dict(text=title_text, font=dict(size=14)),
