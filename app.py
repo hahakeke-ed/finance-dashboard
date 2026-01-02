@@ -1,59 +1,132 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+from datetime import datetime, timedelta
 
-# ... (기존 설정 코드는 유지) ...
+# ---------------------------------------------------------
+# 1. 페이지 설정 및 제목
+# ---------------------------------------------------------
+st.set_page_config(page_title="나만의 경제 대시보드", layout="wide")
 
-st.subheader("종목 비교 분석")
+st.title("📈 나만의 경제지표 대시보드")
+st.markdown("---")
 
-# [수정 1] 입력창 4개를 가로로 배치 (st.columns 사용)
-col1, col2, col3, col4 = st.columns(4)
+# ---------------------------------------------------------
+# 2. 사이드바 (기간 설정 등)
+# ---------------------------------------------------------
+with st.sidebar:
+    st.header("설정")
+    # 기본적으로 최근 1년 데이터를 보여줌
+    start_date = st.date_input("시작일", datetime.now() - timedelta(days=365))
+    end_date = st.date_input("종료일", datetime.now())
 
-with col1:
+# ---------------------------------------------------------
+# 3. 주요 지표 요약 (환율, KOSPI, S&P500 선물)
+# ---------------------------------------------------------
+st.subheader("주요 시장 지표")
+
+# 데이터 가져오기 함수 (캐싱을 통해 속도 향상)
+@st.cache_data
+def get_stock_data(ticker, start, end):
+    try:
+        data = yf.download(ticker, start=start, end=end, progress=False)
+        return data
+    except Exception as e:
+        return None
+
+# 환율(KRW=X), 코스피(^KS11), S&P500 선물(ES=F)
+tickers = {'USD/KRW': 'KRW=X', 'KOSPI': '^KS11', 'S&P 500 Futures': 'ES=F'}
+cols = st.columns(len(tickers))
+
+for col, (name, ticker) in zip(cols, tickers.items()):
+    data = get_stock_data(ticker, start_date, end_date)
+    if data is not None and not data.empty:
+        # 최신 종가와 전일 대비 변동률 계산
+        last_price = data['Close'].iloc[-1]
+        
+        # 데이터가 2개 이상일 때만 전일비 계산
+        if len(data) >= 2:
+            prev_price = data['Close'].iloc[-2]
+            delta = last_price - prev_price
+            delta_pct = (delta / prev_price) * 100
+        else:
+            delta = 0
+            delta_pct = 0
+            
+        # float 변환 (시리즈 형태일 경우 방지)
+        last_price = float(last_price)
+        delta = float(delta)
+        
+        col.metric(label=name, value=f"{last_price:,.2f}", delta=f"{delta:,.2f} ({delta_pct:.2f}%)")
+    else:
+        col.error(f"{name} 데이터 오류")
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# 4. S&P 500 선물 차트 (해결된 부분)
+# ---------------------------------------------------------
+st.subheader("S&P 500 선물 (Futures) 차트")
+sp_futures_data = get_stock_data('ES=F', start_date, end_date)
+
+if sp_futures_data is not None and not sp_futures_data.empty:
+    st.line_chart(sp_futures_data['Close'])
+else:
+    st.write("S&P 500 선물 데이터를 불러올 수 없습니다.")
+
+st.markdown("---")
+
+# ---------------------------------------------------------
+# 5. 관심 종목 비교 분석 (요청하신 4개 입력창 수정 부분)
+# ---------------------------------------------------------
+st.subheader("관심 종목 상세 분석")
+st.caption("비교하고 싶은 종목 코드를 입력하세요. (입력한 개수만큼 차트가 생성됩니다)")
+
+# [수정됨] 입력창 4개를 가로로 배치
+input_cols = st.columns(4)
+
+with input_cols[0]:
     code1 = st.text_input("종목 1", placeholder="예: 005930.KS")
-with col2:
+with input_cols[1]:
     code2 = st.text_input("종목 2", placeholder="예: PLTR")
-with col3:
+with input_cols[2]:
     code3 = st.text_input("종목 3")
-with col4:
+with input_cols[3]:
     code4 = st.text_input("종목 4")
 
-# 입력된 코드들을 리스트로 정리 (빈 칸 제외)
+# 입력된 코드 리스트 정리
 raw_codes = [code1, code2, code3, code4]
 codes = [c.strip() for c in raw_codes if c.strip()]
 
-# [수정 2] 입력된 코드가 있을 경우 반복문을 돌며 차트 생성
 if codes:
-    # 차트를 2열로 예쁘게 배치하기 위해 컨테이너 생성
-    chart_cols = st.columns(2) 
+    # 차트를 2열로 배치하기 위한 컨테이너
+    chart_cols = st.columns(2)
     
     for i, code in enumerate(codes):
         try:
-            # 데이터 가져오기
+            # yfinance로 데이터 로드
             stock = yf.Ticker(code)
-            df = stock.history(period='1y') # 기간은 필요에 따라 조절 (1mo, 3mo, 1y 등)
+            df = stock.history(start=start_date, end=end_date)
             
             if df.empty:
-                st.warning(f"'{code}'에 대한 데이터가 없습니다.")
+                # 데이터가 없으면 경고 메시지 출력 후 다음 루프로
+                st.warning(f"'{code}'에 대한 데이터가 없습니다. 코드를 확인해주세요.")
                 continue
 
-            # [수정 3] 종목 이름 가져오기
-            # yfinance 정보에서 긴 이름(longName)을 가져오고, 없으면 shortName, 그것도 없으면 코드를 씀
-            stock_name = stock.info.get('longName', stock.info.get('shortName', code))
+            # 종목 이름 가져오기 시도
+            # 한국 주식은 영어 이름으로 나올 수 있음 (yfinance 한계)
+            info = stock.info
+            stock_name = info.get('longName', info.get('shortName', code))
             
-            # (옵션) 한국 주식(.KS, .KQ)의 경우 yfinance가 영어 이름을 줄 수 있습니다.
-            # 이 경우 별도의 매핑이 없으면 영어로 나옵니다. 
-            
-            # 차트 그리기 위치 지정 (왼쪽, 오른쪽 번갈아가며 배치)
-            col_index = i % 2 
+            # 차트 그리기 (짝수 인덱스는 왼쪽, 홀수 인덱스는 오른쪽)
+            col_index = i % 2
             with chart_cols[col_index]:
-                st.markdown(f"### {stock_name} ({code})") # 제목: 이름 + 코드
+                st.markdown(f"#### {stock_name}")
+                st.code(code) # 코드를 명확히 보여줌
                 st.line_chart(df['Close'])
                 
-                # 만약 2개가 꽉 차면 다음 줄을 위해 새로운 컬럼 생성 (선택 사항, Streamlit은 자동 줄바꿈 됨)
-                
         except Exception as e:
-            st.error(f"'{code}' 처리 중 오류 발생: {e}")
+            st.error(f"'{code}' 처리 중 에러 발생: {e}")
 
 else:
-    st.info("종목 코드를 입력해주세요.")
+    st.info("위 입력창에 종목 코드를 입력하면 차트가 표시됩니다.")
