@@ -4,3 +4,6 @@ pandas
 plotly
 matplotlib
 pandas-datareader
+finance-datareader
+bs4
+lxml
