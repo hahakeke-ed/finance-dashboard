@@ -14,7 +14,7 @@ st.title("📈 나만의 경제지표 대시보드")
 
 col_link1, col_link2 = st.columns(2)
 with col_link1:
-    st.link_button("🌍 OECD 경기선행지수 보러가기", "https://data.oecd.org/leadind/composite-leading-indicators-cli.htm")
+    st.link_button("🌍 OECD 경기선행지수 보러가기", "https://www.oecd.org/en/data/indicators/composite-leading-indicator-cli.html")
 with col_link2:
     st.link_button("🇰🇷 한국 수출입 무역통계 보러가기", "https://unipass.customs.go.kr/ets/")
 
