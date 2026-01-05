@@ -25,42 +25,39 @@ st.markdown("---")
 # ---------------------------------------------------------
 with st.sidebar:
     st.header("설정")
-    # 주봉으로 보기 때문에 기간을 조금 넉넉히 잡는 것이 좋습니다 (기본 1년)
+    # 차트의 변화를 잘 보기 위해 기본 기간 설정
     start_date = st.date_input("시작일", datetime.now() - timedelta(days=365))
     end_date = st.date_input("종료일", datetime.now())
     st.markdown("---")
-    st.info("💡 팁: 모든 차트는 '주봉(Weekly)' 기준이며, 최신 가격에 점선이 표시됩니다.")
+    st.info("💡 팁: 차트 최신 가격에 붉은 점선이 표시됩니다.")
 
 # ---------------------------------------------------------
-# [공통 함수] Plotly 차트 생성 (주봉, Y축 조절, 점선 추가)
+# [공통 함수] Plotly 차트 생성 (깔끔한 일봉, Y축 자동조절)
 # ---------------------------------------------------------
 def create_plotly_chart(df, title, color='#2962FF'):
-    # 1. 데이터가 비어있으면 None 반환
+    # 1. 데이터 검증
     if df is None or df.empty:
         return None
-
-    # 2. 주봉(Weekly)으로 변환 (Resample)
-    df_weekly = df['Close'].resample('W').last()
     
-    # [수정된 부분] 최신 가격을 확실하게 float(실수)로 변환
+    # 2. 최신 가격 가져오기 (에러 방지 로직 강화)
     try:
-        last_price = float(df_weekly.iloc[-1])
+        last_price = float(df['Close'].iloc[-1])
     except:
-        return None # 가격을 가져올 수 없으면 차트 생성 중단
+        return None # 가격 변환 실패 시 차트 그리지 않음
 
     # 3. 차트 그리기
     fig = go.Figure()
 
-    # 선 그래프 추가
+    # 선 그래프 (일별 데이터 그대로 사용 -> 매끄러운 곡선)
     fig.add_trace(go.Scatter(
-        x=df_weekly.index, 
-        y=df_weekly.values, 
+        x=df.index, 
+        y=df['Close'], 
         mode='lines', 
         name='Close',
         line=dict(color=color, width=2)
     ))
 
-    # 4. 최신 값 점선 추가 (Horizontal Line)
+    # 4. 최신 값 점선 추가 (Y축과 연결)
     fig.add_hline(
         y=last_price, 
         line_dash="dot", 
@@ -71,22 +68,25 @@ def create_plotly_chart(df, title, color='#2962FF'):
         annotation_font_color="red"
     )
 
-    # 5. 레이아웃 설정 (Y축 조절, X축 월 표시)
+    # 5. 레이아웃 설정 (핵심 수정 사항 반영)
     fig.update_layout(
-        title=dict(text=title, font=dict(size=15)),
-        margin=dict(l=10, r=10, t=40, b=10), 
+        title=dict(text=title, font=dict(size=14)),
+        margin=dict(l=10, r=10, t=30, b=10), # 여백 최소화
         height=250, 
         
+        # [수정] X축: 복잡한 포맷 제거 -> 원래대로 깔끔하게
         xaxis=dict(
-            tickformat="%m월", 
             showgrid=True,
             gridcolor='lightgrey'
         ),
         
+        # [수정] Y축: 0부터 시작하지 않음 (autorange=True)
+        # 변화량이 잘 보이도록 데이터 범위에 맞춰 자동 줌인
         yaxis=dict(
             autorange=True, 
+            fixedrange=False, # 사용자가 줌 가능
             showgrid=True,
-            gridcolor='lightgrey',
+            gridcolor='lightgrey'
         ),
         paper_bgcolor='rgba(0,0,0,0)', 
         plot_bgcolor='rgba(0,0,0,0)'
@@ -95,9 +95,9 @@ def create_plotly_chart(df, title, color='#2962FF'):
     return fig
 
 # ---------------------------------------------------------
-# 3. 주요 시장 지표 (요청하신 순서대로 배치)
+# 3. 주요 시장 지표
 # ---------------------------------------------------------
-st.subheader("📊 주요 시장 지표 (주봉 기준)")
+st.subheader("📊 주요 시장 지표")
 
 @st.cache_data
 def get_stock_data(ticker, start, end):
@@ -107,11 +107,12 @@ def get_stock_data(ticker, start, end):
     except Exception as e:
         return None
 
+# [요청하신 순서 적용]
 tickers = {
     '1. KOSPI (코스피)': '^KS11',
     '2. KOSDAQ (코스닥)': '^KQ11',
-    '3. S&P 500 (선물)': 'ES=F',
-    '4. NASDAQ (선물)': 'NQ=F',
+    '3. S&P 500': 'ES=F',
+    '4. NASDAQ (나스닥)': 'NQ=F',
     '5. Gold (금)': 'GC=F',
     '6. WTI Oil (원유)': 'CL=F',
     '7. Bitcoin (비트코인)': 'BTC-USD',
@@ -119,6 +120,7 @@ tickers = {
     '9. USD/KRW (환율)': 'KRW=X'
 }
 
+# 3열 배치
 cols = st.columns(3)
 ticker_items = list(tickers.items())
 
@@ -130,31 +132,35 @@ for i, (name, ticker) in enumerate(ticker_items):
     with col:
         if data is not None and not data.empty:
             try:
+                # 데이터 추출
+                close_data = data['Close']
+                last_price = float(close_data.iloc[-1])
+                
                 # 전일비 계산
-                last_price = data['Close'].iloc[-1]
-                if len(data) >= 2:
-                    prev_price = data['Close'].iloc[-2]
+                if len(close_data) >= 2:
+                    prev_price = float(close_data.iloc[-2])
                     delta = last_price - prev_price
                     delta_pct = (delta / prev_price) * 100
                 else:
-                    delta = 0; delta_pct = 0
+                    delta = 0.0
+                    delta_pct = 0.0
                 
-                # Metric 표시 (float 변환 필수)
+                # Metric 표시
                 st.metric(
                     label=name, 
-                    value=f"{float(last_price):,.2f}", 
-                    delta=f"{float(delta):,.2f} ({float(delta_pct):.2f}%)"
+                    value=f"{last_price:,.2f}", 
+                    delta=f"{delta:,.2f} ({delta_pct:.2f}%)"
                 )
                 
-                # Plotly 차트 그리기
+                # 차트 표시
                 fig = create_plotly_chart(data, name)
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
-                st.error(f"차트 처리 중 오류: {e}")
-            
+                st.error(f"표시 오류: {e}")
         else:
-            st.error(f"{name} 데이터 오류 (불러오기 실패)")
+            # 데이터가 안 불러와질 경우 (일시적 서버 오류 등)
+            st.warning(f"{name}: 데이터 로딩 실패")
 
 st.markdown("---")
 
@@ -194,7 +200,7 @@ krx_stock_dict = get_krx_dict()
 # ---------------------------------------------------------
 # 5. 관심 종목 비교 분석
 # ---------------------------------------------------------
-st.subheader("🔎 관심 종목 상세 분석 (주봉)")
+st.subheader("🔎 관심 종목 상세 분석")
 
 input_col1, input_col2 = st.columns(2)
 
@@ -208,7 +214,7 @@ with input_col1:
 with input_col2:
     manual_input = st.text_input(
         "🇺🇸 해외 종목 코드 직접 입력", 
-        placeholder="콤마(,)로 구분 (예: PLTR, TSLA, NVDA)"
+        placeholder="콤마(,)로 구분 (예: PLTR, TSLA)"
     )
 
 # 종목 리스트 합치기
@@ -241,7 +247,8 @@ if final_codes:
 
             col_idx = i % 2
             with chart_cols[col_idx]:
-                fig = create_plotly_chart(df, display_name, color='#00C853') 
+                # 초록색 차트
+                fig = create_plotly_chart(df, display_name, color='#00C853')
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
                 
