@@ -25,31 +25,49 @@ st.markdown("---")
 # ---------------------------------------------------------
 with st.sidebar:
     st.header("설정")
-    start_date = st.date_input("시작일", datetime.now() - timedelta(days=365))
-    end_date = st.date_input("종료일", datetime.now())
+    # 기본 기간을 1년으로 설정
+    default_start = datetime.now() - timedelta(days=365)
+    default_end = datetime.now()
+    
+    start_date = st.date_input("시작일", default_start)
+    end_date = st.date_input("종료일", default_end)
     st.markdown("---")
     st.info("💡 팁: 그래프에 마우스를 올리면 상세 가격을 볼 수 있습니다.")
 
 # ---------------------------------------------------------
-# [수정된 함수] 오류 해결: 값을 강제로 float로 변환
+# [핵심 수정] Plotly 차트 그리기 함수 (스케일링 및 포맷 개선)
 # ---------------------------------------------------------
 def plot_advanced_chart(df, title, color='royalblue'):
-    if df is None or df.empty:
+    # 1. 데이터 유효성 검사
+    if df is None or df.empty or len(df) < 2:
         return go.Figure()
     
-    # [수정 포인트] 데이터가 Series나 DataFrame일 경우를 대비해 안전하게 값 추출
-    close_data = df['Close']
+    # 2. 데이터 전처리 (결측치 제거 및 타입 변환)
+    df = df.dropna(subset=['Close']) # Close 열의 NaN 제거
     
-    # 마지막 값을 가져옴
-    last_val_raw = close_data.iloc[-1]
+    # 마지막 값 추출 (Series/Scalar 처리)
+    try:
+        last_val_raw = df['Close'].iloc[-1]
+        if isinstance(last_val_raw, pd.Series):
+            last_val_raw = last_val_raw.iloc[0]
+        last_price = float(last_val_raw)
+    except:
+        return go.Figure()
+
+    # 3. Y축 범위 계산 (0부터 시작하지 않게, 여백 5% 부여)
+    y_min = df['Close'].min()
+    y_max = df['Close'].max()
+    y_range_diff = y_max - y_min
     
-    # 만약 가져온 값이 Series(리스트 형태)라면 첫 번째 값을 꺼냄
-    if isinstance(last_val_raw, pd.Series):
-        last_val_raw = last_val_raw.iloc[0]
+    if y_range_diff == 0:
+        padding = y_max * 0.01
+    else:
+        padding = y_range_diff * 0.1 # 위아래 10% 여백
         
-    # 순수 숫자(float)로 변환 (여기서 에러 방지)
-    last_price = float(last_val_raw)
-    
+    range_min = y_min - padding
+    range_max = y_max + padding
+
+    # 4. 차트 생성
     fig = go.Figure()
     
     # 메인 라인
@@ -58,27 +76,38 @@ def plot_advanced_chart(df, title, color='royalblue'):
         y=df['Close'], 
         mode='lines', 
         name=title,
-        line=dict(color=color, width=2)
+        line=dict(color=color, width=2),
+        hoverinfo='x+y'
     ))
 
-    # 점선 추가
+    # 최신가 점선 및 라벨
     fig.add_hline(
         y=last_price, 
         line_dash="dot", 
         line_color="red", 
         line_width=1,
         annotation_text=f"{last_price:,.2f}", 
-        annotation_position="top left",
+        annotation_position="top right", # 오른쪽 상단에 배치하여 겹침 방지
         annotation_font_color="red"
     )
 
+    # 5. 레이아웃 설정 (여백 최소화 및 축 설정)
     fig.update_layout(
-        title=dict(text=title, font=dict(size=15)),
-        height=250,
-        margin=dict(l=10, r=10, t=40, b=10),
-        yaxis=dict(autorange=True, fixedrange=False), 
-        xaxis=dict(showgrid=False),
-        template="plotly_white"
+        title=dict(text=title, font=dict(size=14)),
+        height=200, # 높이를 고정하여 일관성 유지
+        margin=dict(l=10, r=10, t=30, b=20), # 여백 조정
+        template="plotly_white",
+        yaxis=dict(
+            range=[range_min, range_max], # [중요] 계산된 범위 강제 적용
+            showgrid=True,
+            gridcolor='lightgray',
+            fixedrange=False # 줌 가능
+        ),
+        xaxis=dict(
+            showgrid=False,
+            tickformat='%Y-%m-%d', # [중요] 날짜 포맷 고정 (지저분한 시간 제거)
+            nticks=5 # X축 라벨 개수 제한하여 겹침 방지
+        )
     )
     
     return fig
@@ -86,13 +115,14 @@ def plot_advanced_chart(df, title, color='royalblue'):
 @st.cache_data
 def get_stock_data(ticker, start, end):
     try:
-        data = yf.download(ticker, start=start, end=end, progress=False)
+        # interval='1d'를 명시하여 이상한 시간 데이터 방지
+        data = yf.download(ticker, start=start, end=end, progress=False, interval='1d')
         return data
     except Exception as e:
         return None
 
 # ---------------------------------------------------------
-# 3. 주요 시장 지표
+# 3. 주요 시장 지표 (순서 반영됨)
 # ---------------------------------------------------------
 st.subheader("📊 주요 시장 지표")
 
@@ -118,42 +148,46 @@ for i, (name, ticker) in enumerate(ticker_items):
     
     with col:
         if data is not None and not data.empty:
-            # [수정 포인트] Metric 계산 시에도 안전하게 값 추출
             try:
-                # Close 컬럼 가져오기
-                close_series = data['Close']
+                # 데이터 전처리 (Metric 계산용)
+                close_series = data['Close'].dropna()
                 
-                # 값 추출 (Series일 경우 처리)
-                val_last = close_series.iloc[-1]
-                if isinstance(val_last, pd.Series): val_last = val_last.iloc[0]
-                last_price = float(val_last)
+                if len(close_series) > 0:
+                    # 최신값
+                    val_last = close_series.iloc[-1]
+                    if isinstance(val_last, pd.Series): val_last = val_last.iloc[0]
+                    last_price = float(val_last)
 
-                if len(data) >= 2:
-                    val_prev = close_series.iloc[-2]
-                    if isinstance(val_prev, pd.Series): val_prev = val_prev.iloc[0]
-                    prev_price = float(val_prev)
+                    # 등락폭 계산
+                    if len(close_series) >= 2:
+                        val_prev = close_series.iloc[-2]
+                        if isinstance(val_prev, pd.Series): val_prev = val_prev.iloc[0]
+                        prev_price = float(val_prev)
+                        
+                        delta = last_price - prev_price
+                        delta_pct = (delta / prev_price) * 100
+                    else:
+                        delta = 0
+                        delta_pct = 0
                     
-                    delta = last_price - prev_price
-                    delta_pct = (delta / prev_price) * 100
+                    # Metric 표시
+                    st.metric(label=name, value=f"{last_price:,.2f}", delta=f"{delta:,.2f} ({delta_pct:.2f}%)")
+                    
+                    # 차트 그리기 (수정된 함수 호출)
+                    fig = plot_advanced_chart(data, name)
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                 else:
-                    delta = 0
-                    delta_pct = 0
-                
-                st.metric(label=name, value=f"{last_price:,.2f}", delta=f"{delta:,.2f} ({delta_pct:.2f}%)")
-                
-                # 차트 그리기
-                fig = plot_advanced_chart(data, name)
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                    st.warning(f"{name}: 데이터가 부족합니다.")
                 
             except Exception as e:
-                st.error(f"데이터 처리 오류: {e}")
+                st.error(f"처리 오류: {e}")
         else:
-            st.error(f"{name} 데이터 없음")
+            st.error(f"{name} 데이터 로드 실패")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 4. 한국 주식 목록 가져오기
+# 4. 한국 주식 목록 가져오기 (FDR)
 # ---------------------------------------------------------
 @st.cache_data
 def get_krx_dict():
@@ -225,8 +259,9 @@ if final_codes:
     for i, code in enumerate(final_codes):
         try:
             display_name = final_names[i]
+            # 여기도 interval='1d' 추가
             stock = yf.Ticker(code)
-            df = stock.history(start=start_date, end=end_date)
+            df = stock.history(start=start_date, end=end_date, interval='1d')
             
             if df.empty:
                 st.warning(f"'{display_name}' 데이터가 없습니다.")
