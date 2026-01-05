@@ -41,17 +41,28 @@ cols = st.columns(len(tickers))
 for col, (name, ticker) in zip(cols, tickers.items()):
     data = get_stock_data(ticker, start_date, end_date)
     if data is not None and not data.empty:
-        last_price = data['Close'].iloc[-1]
-        if len(data) >= 2:
-            prev_price = data['Close'].iloc[-2]
-            delta = last_price - prev_price
-            delta_pct = (delta / prev_price) * 100
-        else:
-            delta = 0; delta_pct = 0
+        try:
+            # 최신 종가와 전일 대비 변동률 계산
+            last_price = data['Close'].iloc[-1]
             
-        col.metric(label=name, value=f"{float(last_price):,.2f}", delta=f"{float(delta):,.2f} ({delta_pct:.2f}%)")
+            if len(data) >= 2:
+                prev_price = data['Close'].iloc[-2]
+                delta = last_price - prev_price
+                delta_pct = (delta / prev_price) * 100
+            else:
+                delta = 0
+                delta_pct = 0
+                
+            # [에러 수정 부분] 모든 변수를 명확하게 float(실수)로 변환
+            last_price = float(last_price)
+            delta = float(delta)
+            delta_pct = float(delta_pct)
+            
+            col.metric(label=name, value=f"{last_price:,.2f}", delta=f"{delta:,.2f} ({delta_pct:.2f}%)")
+        except Exception as e:
+            col.error(f"데이터 처리 오류: {e}")
     else:
-        col.error(f"{name} 데이터 오류")
+        col.error(f"{name} 데이터 없음")
 
 st.markdown("---")
 
@@ -78,34 +89,38 @@ def get_krx_dict():
     '종목명 (코드)' : 'YahooTicker' 형태의 딕셔너리로 반환합니다.
     """
     try:
-        # KRX 전체 리스트 다운로드 (시간이 조금 걸리므로 캐싱 필수)
         df = fdr.StockListing('KRX')
         
         stock_dict = {}
         for index, row in df.iterrows():
-            name = row['Name']
-            code = str(row['Code'])
-            market = row['Market']
-            
-            # Yahoo Finance용 접미사 붙이기
-            # 코스피 -> .KS, 코스닥 -> .KQ
-            if 'KOSPI' in market:
-                yahoo_code = code + '.KS'
-            elif 'KOSDAQ' in market:
-                yahoo_code = code + '.KQ'
-            else:
-                continue # 코넥스 등 기타 시장은 제외 (필요 시 추가 가능)
-            
-            # 검색창에 보일 이름: "삼성전자 (005930)"
-            display_name = f"{name} ({code})"
-            stock_dict[display_name] = yahoo_code
+            # 데이터프레임 구조에 따라 컬럼명이 다를 수 있어 예외처리 추가
+            try:
+                name = row.get('Name', row.get('종목명'))
+                code = str(row.get('Code', row.get('종목코드'))) # 코드는 문자열로 변환
+                market = row.get('Market', row.get('시장구분'))
+                
+                if not name or not code: 
+                    continue
+                
+                # Yahoo Finance용 접미사 붙이기
+                if 'KOSPI' in str(market).upper():
+                    yahoo_code = code + '.KS'
+                elif 'KOSDAQ' in str(market).upper():
+                    yahoo_code = code + '.KQ'
+                else:
+                    continue 
+                
+                display_name = f"{name} ({code})"
+                stock_dict[display_name] = yahoo_code
+            except:
+                continue
             
         return stock_dict
     except Exception as e:
         st.error(f"주식 목록을 불러오는 중 오류 발생: {e}")
         return {}
 
-# 주식 목록 로드 (앱 실행 시 1회 실행됨)
+# 주식 목록 로드
 krx_stock_dict = get_krx_dict()
 
 # ---------------------------------------------------------
@@ -115,7 +130,7 @@ st.subheader("관심 종목 상세 분석")
 
 col1, col2 = st.columns(2)
 
-# [입력 1] 한국 주식 검색 (Multiselect)
+# [입력 1] 한국 주식 검색
 with col1:
     selected_korea_stocks = st.multiselect(
         "🇰🇷 한국 주식/ETF 검색 (이름으로 검색)",
@@ -123,7 +138,7 @@ with col1:
         placeholder="예: 삼성전자, KODEX 200"
     )
 
-# [입력 2] 해외 주식/기타 직접 입력 (Text Input)
+# [입력 2] 해외 주식/기타 직접 입력
 with col2:
     manual_input = st.text_input(
         "🇺🇸 해외 주식 또는 직접 입력 (콤마 구분)", 
@@ -133,29 +148,28 @@ with col2:
 # ---------------------------------------------------------
 # 7. 차트 그리기 로직
 # ---------------------------------------------------------
-# 1) 한국 주식 선택된 것들의 Yahoo 코드 찾기
 final_codes = []
 final_names = []
 
+# 1) 한국 주식
 for item in selected_korea_stocks:
-    yahoo_ticker = krx_stock_dict[item] # 딕셔너리에서 코드 변환
+    yahoo_ticker = krx_stock_dict[item]
     final_codes.append(yahoo_ticker)
-    final_names.append(item) # 차트 제목용 이름
+    final_names.append(item)
 
-# 2) 직접 입력된 코드들 추가
+# 2) 직접 입력
 if manual_input:
     manual_codes = [c.strip() for c in manual_input.split(',') if c.strip()]
     final_codes.extend(manual_codes)
-    final_names.extend(manual_codes) # 직접 입력은 이름을 코드로 대체
+    final_names.extend(manual_codes)
 
-# 3) 통합된 리스트로 차트 그리기
+# 3) 통합 차트
 if final_codes:
     st.caption(f"총 {len(final_codes)}개의 종목을 분석합니다.")
     chart_cols = st.columns(2)
     
     for i, code in enumerate(final_codes):
         try:
-            # 이름 설정 (한국 주식은 한글 이름, 직접 입력은 코드 그대로)
             display_name = final_names[i]
             
             stock = yf.Ticker(code)
@@ -165,7 +179,6 @@ if final_codes:
                 st.warning(f"'{display_name}' ({code}) 데이터가 없습니다.")
                 continue
 
-            # 차트 배치
             col_index = i % 2
             with chart_cols[col_index]:
                 st.markdown(f"#### {display_name}")
