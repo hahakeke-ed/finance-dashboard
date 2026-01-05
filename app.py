@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import FinanceDataReader as fdr
+import plotly.graph_objects as go # 강력한 차트 기능을 위해 추가
 from datetime import datetime, timedelta
 
 # ---------------------------------------------------------
@@ -11,7 +12,6 @@ st.set_page_config(page_title="나만의 경제 대시보드", layout="wide")
 
 st.title("📈 나만의 경제지표 대시보드")
 
-# [복구됨] 외부 데이터 링크 버튼
 col_link1, col_link2 = st.columns(2)
 with col_link1:
     st.link_button("🌍 OECD 경기선행지수 보러가기", "https://data.oecd.org/leadind/composite-leading-indicators-cli.htm")
@@ -25,75 +25,141 @@ st.markdown("---")
 # ---------------------------------------------------------
 with st.sidebar:
     st.header("설정")
+    # 주봉으로 보기 때문에 기간을 조금 넉넉히 잡는 것이 좋습니다 (기본 1년)
     start_date = st.date_input("시작일", datetime.now() - timedelta(days=365))
     end_date = st.date_input("종료일", datetime.now())
     st.markdown("---")
-    st.info("💡 팁: 주요 지표는 자동으로 로드되며, 아래에서 개별 종목을 검색할 수 있습니다.")
+    st.info("💡 팁: 모든 차트는 '주봉(Weekly)' 기준이며, 최신 가격에 점선이 표시됩니다.")
 
 # ---------------------------------------------------------
-# 3. 주요 시장 지표 (3열 배치 + 차트 포함 복구)
+# [공통 함수] Plotly 차트 생성 (주봉, Y축 조절, 점선 추가)
 # ---------------------------------------------------------
-st.subheader("📊 주요 시장 지표")
+def create_plotly_chart(df, title, color='#2962FF'):
+    # 1. 데이터가 비어있으면 None 반환
+    if df is None or df.empty:
+        return None
+
+    # 2. 주봉(Weekly)으로 변환 (Resample)
+    # 'W'는 일요일 기준, 'W-FRI'는 금요일 기준 등 설정 가능. 기본 'W' 사용
+    df_weekly = df['Close'].resample('W').last()
+    
+    # 최신 가격 (점선용)
+    last_price = df_weekly.iloc[-1]
+    
+    # 3. 차트 그리기
+    fig = go.Figure()
+
+    # 선 그래프 추가
+    fig.add_trace(go.Scatter(
+        x=df_weekly.index, 
+        y=df_weekly.values, 
+        mode='lines', 
+        name='Close',
+        line=dict(color=color, width=2)
+    ))
+
+    # 4. [요청 3] 최신 값 점선 추가 (Horizontal Line)
+    fig.add_hline(
+        y=last_price, 
+        line_dash="dot", 
+        line_color="red", 
+        line_width=1,
+        annotation_text=f"{last_price:,.2f}", 
+        annotation_position="bottom right",
+        annotation_font_color="red"
+    )
+
+    # 5. 레이아웃 설정 (Y축 조절, X축 월 표시)
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=15)),
+        margin=dict(l=10, r=10, t=40, b=10), # 여백 최소화
+        height=250, # 차트 높이
+        
+        # [요청 2] X축: 월(Month) 숫자로 표시
+        xaxis=dict(
+            tickformat="%m월", # 예: 01월, 02월...
+            showgrid=True,
+            gridcolor='lightgrey'
+        ),
+        
+        # [요청 1] Y축: 0부터 시작하지 않고 데이터 범위에 맞춤
+        yaxis=dict(
+            autorange=True, # 데이터 범위에 맞춰 자동 줌
+            showgrid=True,
+            gridcolor='lightgrey',
+            # tickformat="," # 천단위 콤마
+        ),
+        paper_bgcolor='rgba(0,0,0,0)', # 배경 투명
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
+
+# ---------------------------------------------------------
+# 3. 주요 시장 지표 (요청하신 순서대로 배치)
+# ---------------------------------------------------------
+st.subheader("📊 주요 시장 지표 (주봉 기준)")
 
 @st.cache_data
 def get_stock_data(ticker, start, end):
     try:
+        # progress=False로 지저분한 로딩바 제거
         data = yf.download(ticker, start=start, end=end, progress=False)
         return data
     except Exception as e:
         return None
 
-# [복구 및 확장] 감시할 주요 지표 리스트 (나스닥, 금, 국채 추가)
+# [요청 4] 순서 적용: 코스피, 코스닥, SNP, 나스닥, 금, 원유, 비트코인, 미국채10년, 환율
 tickers = {
-    'USD/KRW (환율)': 'KRW=X', 
-    'KOSPI (코스피)': '^KS11', 
-    'S&P 500 (선물)': 'ES=F',
-    'NASDAQ (선물)': 'NQ=F',
-    'Gold (금 선물)': 'GC=F',
-    'US 10Y Bond (미국채 10년)': '^TNX'
+    '1. KOSPI (코스피)': '^KS11',
+    '2. KOSDAQ (코스닥)': '^KQ11',
+    '3. S&P 500 (선물)': 'ES=F',
+    '4. NASDAQ (선물)': 'NQ=F',
+    '5. Gold (금)': 'GC=F',
+    '6. WTI Oil (원유)': 'CL=F',
+    '7. Bitcoin (비트코인)': 'BTC-USD',
+    '8. US 10Y Bond (미국채)': '^TNX',
+    '9. USD/KRW (환율)': 'KRW=X'
 }
 
-# 3개의 컬럼 생성 (한 줄에 3개씩 배치)
+# 3개의 컬럼 생성 (한 줄에 3개씩)
 cols = st.columns(3)
-
-# 딕셔너리 아이템을 리스트로 변환하여 인덱스로 접근
 ticker_items = list(tickers.items())
 
 for i, (name, ticker) in enumerate(ticker_items):
-    # i를 3으로 나눈 나머지를 이용해 컬럼 지정 (0, 1, 2 반복)
-    col = cols[i % 3]
+    col = cols[i % 3] # 0, 1, 2 반복
     
     data = get_stock_data(ticker, start_date, end_date)
     
     with col:
         if data is not None and not data.empty:
-            # Metric 계산
+            # 전일비 계산 (일별 데이터 기준)
             last_price = data['Close'].iloc[-1]
             if len(data) >= 2:
                 prev_price = data['Close'].iloc[-2]
                 delta = last_price - prev_price
                 delta_pct = (delta / prev_price) * 100
             else:
-                delta = 0
-                delta_pct = 0
+                delta = 0; delta_pct = 0
             
-            # 에러 방지용 float 변환
-            last_price = float(last_price)
-            delta = float(delta)
-            delta_pct = float(delta_pct)
+            # Metric 표시
+            st.metric(
+                label=name, 
+                value=f"{float(last_price):,.2f}", 
+                delta=f"{float(delta):,.2f} ({float(delta_pct):.2f}%)"
+            )
             
-            # 숫자 표시
-            st.metric(label=name, value=f"{last_price:,.2f}", delta=f"{delta:,.2f} ({delta_pct:.2f}%)")
+            # [수정됨] Plotly 차트 그리기 함수 호출
+            fig = create_plotly_chart(data, name)
+            st.plotly_chart(fig, use_container_width=True)
             
-            # [복구됨] 작은 차트 표시
-            st.line_chart(data['Close'], height=150)
         else:
             st.error(f"{name} 데이터 오류")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 4. [복구됨] 한국 주식 목록 가져오기 (FDR)
+# 4. 한국 주식 목록 가져오기 (FDR)
 # ---------------------------------------------------------
 @st.cache_data
 def get_krx_dict():
@@ -126,10 +192,9 @@ def get_krx_dict():
 krx_stock_dict = get_krx_dict()
 
 # ---------------------------------------------------------
-# 5. 관심 종목 비교 분석 (복구됨: 검색 + 입력)
+# 5. 관심 종목 비교 분석
 # ---------------------------------------------------------
-st.subheader("🔎 관심 종목 상세 분석")
-st.caption("한국 주식은 검색하고, 미국 주식은 코드를 직접 입력하여 비교할 수 있습니다.")
+st.subheader("🔎 관심 종목 상세 분석 (주봉)")
 
 input_col1, input_col2 = st.columns(2)
 
@@ -150,12 +215,10 @@ with input_col2:
 final_codes = []
 final_names = []
 
-# 한국 주식 처리
 for item in selected_korea_stocks:
     final_codes.append(krx_stock_dict[item])
     final_names.append(item)
 
-# 직접 입력 처리
 if manual_input:
     manual_codes = [c.strip() for c in manual_input.split(',') if c.strip()]
     final_codes.extend(manual_codes)
@@ -164,7 +227,6 @@ if manual_input:
 # 결과 차트 그리기
 if final_codes:
     st.write(f"총 {len(final_codes)}개의 종목을 분석합니다.")
-    # 2열로 차트 배치
     chart_cols = st.columns(2)
     
     for i, code in enumerate(final_codes):
@@ -179,8 +241,9 @@ if final_codes:
 
             col_idx = i % 2
             with chart_cols[col_idx]:
-                st.markdown(f"#### {display_name}")
-                st.line_chart(df['Close'])
+                # [수정됨] 여기도 동일하게 Plotly 차트 적용
+                fig = create_plotly_chart(df, display_name, color='#00C853') # 초록색 계열
+                st.plotly_chart(fig, use_container_width=True)
                 
         except Exception as e:
             st.error(f"'{code}' 처리 중 에러: {e}")
