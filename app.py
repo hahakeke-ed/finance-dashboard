@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import FinanceDataReader as fdr
+import plotly.graph_objects as go # 차트 커스텀을 위해 plotly 추가
 from datetime import datetime, timedelta
 
 # ---------------------------------------------------------
@@ -11,7 +12,7 @@ st.set_page_config(page_title="나만의 경제 대시보드", layout="wide")
 
 st.title("📈 나만의 경제지표 대시보드")
 
-# [복구됨] 외부 데이터 링크 버튼
+# 외부 데이터 링크 버튼
 col_link1, col_link2 = st.columns(2)
 with col_link1:
     st.link_button("🌍 OECD 경기선행지수 보러가기", "https://data.oecd.org/leadind/composite-leading-indicators-cli.htm")
@@ -28,40 +29,88 @@ with st.sidebar:
     start_date = st.date_input("시작일", datetime.now() - timedelta(days=365))
     end_date = st.date_input("종료일", datetime.now())
     st.markdown("---")
-    st.info("💡 팁: 주요 지표는 자동으로 로드되며, 아래에서 개별 종목을 검색할 수 있습니다.")
+    st.info("💡 팁: 그래프에 마우스를 올리면 상세 가격을 볼 수 있습니다.")
 
 # ---------------------------------------------------------
-# 3. 주요 시장 지표 (3열 배치 + 차트 포함 복구)
+# [함수] Plotly를 이용한 차트 그리기 (Y축 조절 + 최신가 점선)
 # ---------------------------------------------------------
-st.subheader("📊 주요 시장 지표")
+def plot_advanced_chart(df, title, color='royalblue'):
+    # 데이터가 비어있으면 빈 차트 반환
+    if df is None or df.empty:
+        return go.Figure()
+    
+    last_price = df['Close'].iloc[-1]
+    
+    # 캔들차트 혹은 라인차트 생성
+    fig = go.Figure()
+    
+    # 메인 라인
+    fig.add_trace(go.Scatter(
+        x=df.index, 
+        y=df['Close'], 
+        mode='lines', 
+        name=title,
+        line=dict(color=color, width=2)
+    ))
+
+    # [요청 2] 최신 값에 점선으로 Y축 이어지게 만들기
+    fig.add_hline(
+        y=last_price, 
+        line_dash="dot", 
+        line_color="red", 
+        line_width=1,
+        annotation_text=f"{last_price:,.2f}", 
+        annotation_position="top left",
+        annotation_font_color="red"
+    )
+
+    # 레이아웃 설정
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=15)),
+        height=250, # 높이 적절히 조절
+        margin=dict(l=10, r=10, t=40, b=10),
+        # [요청 1] Y축을 0부터 시작하지 않고 데이터 범위에 맞게 조절 (autorange=True가 기본이지만 명시)
+        yaxis=dict(autorange=True, fixedrange=False), 
+        xaxis=dict(showgrid=False),
+        template="plotly_white" # 깔끔한 배경
+    )
+    
+    return fig
 
 @st.cache_data
 def get_stock_data(ticker, start, end):
     try:
+        # yfinance 다운로드
         data = yf.download(ticker, start=start, end=end, progress=False)
         return data
     except Exception as e:
         return None
 
-# [복구 및 확장] 감시할 주요 지표 리스트 (나스닥, 금, 국채 추가)
+# ---------------------------------------------------------
+# 3. 주요 시장 지표
+# ---------------------------------------------------------
+st.subheader("📊 주요 시장 지표")
+
+# [요청 3] 차트 순서 및 종목 변경
+# 코스피, 코스닥, snp지수, 나스닥, 금, 원유, 비트코인, 미국채10년, 원달러 환율
 tickers = {
-    'USD/KRW (환율)': 'KRW=X', 
     'KOSPI (코스피)': '^KS11', 
+    'KOSDAQ (코스닥)': '^KQ11',
     'S&P 500 (선물)': 'ES=F',
     'NASDAQ (선물)': 'NQ=F',
     'Gold (금 선물)': 'GC=F',
-    'US 10Y Bond (미국채 10년)': '^TNX'
+    'WTI Crude Oil (원유)': 'CL=F',   # 원유 추가
+    'Bitcoin (비트코인)': 'BTC-USD',  # 비트코인 추가
+    'US 10Y Bond (미국채 10년)': '^TNX',
+    'USD/KRW (환율)': 'KRW=X', 
 }
 
 # 3개의 컬럼 생성 (한 줄에 3개씩 배치)
 cols = st.columns(3)
-
-# 딕셔너리 아이템을 리스트로 변환하여 인덱스로 접근
 ticker_items = list(tickers.items())
 
 for i, (name, ticker) in enumerate(ticker_items):
-    # i를 3으로 나눈 나머지를 이용해 컬럼 지정 (0, 1, 2 반복)
-    col = cols[i % 3]
+    col = cols[i % 3] # 0, 1, 2 반복
     
     data = get_stock_data(ticker, start_date, end_date)
     
@@ -82,18 +131,20 @@ for i, (name, ticker) in enumerate(ticker_items):
             delta = float(delta)
             delta_pct = float(delta_pct)
             
-            # 숫자 표시
+            # 상단 숫자 표시 (Metric)
             st.metric(label=name, value=f"{last_price:,.2f}", delta=f"{delta:,.2f} ({delta_pct:.2f}%)")
             
-            # [복구됨] 작은 차트 표시
-            st.line_chart(data['Close'], height=150)
+            # [수정됨] Plotly 차트 적용 (Y축 조절 및 점선 포함)
+            fig = plot_advanced_chart(data, name)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            
         else:
             st.error(f"{name} 데이터 오류")
 
 st.markdown("---")
 
 # ---------------------------------------------------------
-# 4. [복구됨] 한국 주식 목록 가져오기 (FDR)
+# 4. 한국 주식 목록 가져오기 (FDR)
 # ---------------------------------------------------------
 @st.cache_data
 def get_krx_dict():
@@ -126,7 +177,7 @@ def get_krx_dict():
 krx_stock_dict = get_krx_dict()
 
 # ---------------------------------------------------------
-# 5. 관심 종목 비교 분석 (복구됨: 검색 + 입력)
+# 5. 관심 종목 비교 분석
 # ---------------------------------------------------------
 st.subheader("🔎 관심 종목 상세 분석")
 st.caption("한국 주식은 검색하고, 미국 주식은 코드를 직접 입력하여 비교할 수 있습니다.")
@@ -179,8 +230,9 @@ if final_codes:
 
             col_idx = i % 2
             with chart_cols[col_idx]:
-                st.markdown(f"#### {display_name}")
-                st.line_chart(df['Close'])
+                # [수정됨] Plotly 차트 사용
+                fig = plot_advanced_chart(df, display_name, color='green')
+                st.plotly_chart(fig, use_container_width=True)
                 
         except Exception as e:
             st.error(f"'{code}' 처리 중 에러: {e}")
