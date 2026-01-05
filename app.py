@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import FinanceDataReader as fdr
-import plotly.graph_objects as go # 강력한 차트 기능을 위해 추가
+import plotly.graph_objects as go 
 from datetime import datetime, timedelta
 
 # ---------------------------------------------------------
@@ -40,12 +40,14 @@ def create_plotly_chart(df, title, color='#2962FF'):
         return None
 
     # 2. 주봉(Weekly)으로 변환 (Resample)
-    # 'W'는 일요일 기준, 'W-FRI'는 금요일 기준 등 설정 가능. 기본 'W' 사용
     df_weekly = df['Close'].resample('W').last()
     
-    # 최신 가격 (점선용)
-    last_price = df_weekly.iloc[-1]
-    
+    # [수정된 부분] 최신 가격을 확실하게 float(실수)로 변환
+    try:
+        last_price = float(df_weekly.iloc[-1])
+    except:
+        return None # 가격을 가져올 수 없으면 차트 생성 중단
+
     # 3. 차트 그리기
     fig = go.Figure()
 
@@ -58,7 +60,7 @@ def create_plotly_chart(df, title, color='#2962FF'):
         line=dict(color=color, width=2)
     ))
 
-    # 4. [요청 3] 최신 값 점선 추가 (Horizontal Line)
+    # 4. 최신 값 점선 추가 (Horizontal Line)
     fig.add_hline(
         y=last_price, 
         line_dash="dot", 
@@ -72,24 +74,21 @@ def create_plotly_chart(df, title, color='#2962FF'):
     # 5. 레이아웃 설정 (Y축 조절, X축 월 표시)
     fig.update_layout(
         title=dict(text=title, font=dict(size=15)),
-        margin=dict(l=10, r=10, t=40, b=10), # 여백 최소화
-        height=250, # 차트 높이
+        margin=dict(l=10, r=10, t=40, b=10), 
+        height=250, 
         
-        # [요청 2] X축: 월(Month) 숫자로 표시
         xaxis=dict(
-            tickformat="%m월", # 예: 01월, 02월...
+            tickformat="%m월", 
             showgrid=True,
             gridcolor='lightgrey'
         ),
         
-        # [요청 1] Y축: 0부터 시작하지 않고 데이터 범위에 맞춤
         yaxis=dict(
-            autorange=True, # 데이터 범위에 맞춰 자동 줌
+            autorange=True, 
             showgrid=True,
             gridcolor='lightgrey',
-            # tickformat="," # 천단위 콤마
         ),
-        paper_bgcolor='rgba(0,0,0,0)', # 배경 투명
+        paper_bgcolor='rgba(0,0,0,0)', 
         plot_bgcolor='rgba(0,0,0,0)'
     )
     
@@ -103,13 +102,11 @@ st.subheader("📊 주요 시장 지표 (주봉 기준)")
 @st.cache_data
 def get_stock_data(ticker, start, end):
     try:
-        # progress=False로 지저분한 로딩바 제거
         data = yf.download(ticker, start=start, end=end, progress=False)
         return data
     except Exception as e:
         return None
 
-# [요청 4] 순서 적용: 코스피, 코스닥, SNP, 나스닥, 금, 원유, 비트코인, 미국채10년, 환율
 tickers = {
     '1. KOSPI (코스피)': '^KS11',
     '2. KOSDAQ (코스닥)': '^KQ11',
@@ -122,39 +119,42 @@ tickers = {
     '9. USD/KRW (환율)': 'KRW=X'
 }
 
-# 3개의 컬럼 생성 (한 줄에 3개씩)
 cols = st.columns(3)
 ticker_items = list(tickers.items())
 
 for i, (name, ticker) in enumerate(ticker_items):
-    col = cols[i % 3] # 0, 1, 2 반복
+    col = cols[i % 3] 
     
     data = get_stock_data(ticker, start_date, end_date)
     
     with col:
         if data is not None and not data.empty:
-            # 전일비 계산 (일별 데이터 기준)
-            last_price = data['Close'].iloc[-1]
-            if len(data) >= 2:
-                prev_price = data['Close'].iloc[-2]
-                delta = last_price - prev_price
-                delta_pct = (delta / prev_price) * 100
-            else:
-                delta = 0; delta_pct = 0
-            
-            # Metric 표시
-            st.metric(
-                label=name, 
-                value=f"{float(last_price):,.2f}", 
-                delta=f"{float(delta):,.2f} ({float(delta_pct):.2f}%)"
-            )
-            
-            # [수정됨] Plotly 차트 그리기 함수 호출
-            fig = create_plotly_chart(data, name)
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                # 전일비 계산
+                last_price = data['Close'].iloc[-1]
+                if len(data) >= 2:
+                    prev_price = data['Close'].iloc[-2]
+                    delta = last_price - prev_price
+                    delta_pct = (delta / prev_price) * 100
+                else:
+                    delta = 0; delta_pct = 0
+                
+                # Metric 표시 (float 변환 필수)
+                st.metric(
+                    label=name, 
+                    value=f"{float(last_price):,.2f}", 
+                    delta=f"{float(delta):,.2f} ({float(delta_pct):.2f}%)"
+                )
+                
+                # Plotly 차트 그리기
+                fig = create_plotly_chart(data, name)
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"차트 처리 중 오류: {e}")
             
         else:
-            st.error(f"{name} 데이터 오류")
+            st.error(f"{name} 데이터 오류 (불러오기 실패)")
 
 st.markdown("---")
 
@@ -241,9 +241,9 @@ if final_codes:
 
             col_idx = i % 2
             with chart_cols[col_idx]:
-                # [수정됨] 여기도 동일하게 Plotly 차트 적용
-                fig = create_plotly_chart(df, display_name, color='#00C853') # 초록색 계열
-                st.plotly_chart(fig, use_container_width=True)
+                fig = create_plotly_chart(df, display_name, color='#00C853') 
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
                 
         except Exception as e:
             st.error(f"'{code}' 처리 중 에러: {e}")
