@@ -156,6 +156,7 @@ tickers = {
     'Bitcoin (비트코인)': 'BTC-USD',  
     'US 10Y Bond (미국채 10년)': '^TNX',
     'USD/KRW (환율)': 'KRW=X', 
+    'VIX (공포지수)': '^VIX',
 }
 
 cols = st.columns(3)
