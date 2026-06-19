@@ -1,6 +1,3 @@
-아래 전체를 GitHub의 `app.py`에 그대로 붙여 넣으면 됩니다. `VCP CSV 차트` 탭에서 `일봉/주봉` 선택 기능을 넣어두었습니다.
-
-```python
 from __future__ import annotations
 
 import re
@@ -746,4 +743,3 @@ with tab_manual:
 
 st.markdown("---")
 st.caption("본 대시보드는 참고용 정보 제공 도구이며, 투자 권유 또는 매매 추천이 아닙니다.")
-```
