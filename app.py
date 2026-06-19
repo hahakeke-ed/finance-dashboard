@@ -1,3 +1,6 @@
+아래 전체를 GitHub의 `app.py`에 그대로 붙여 넣으면 됩니다. `VCP CSV 차트` 탭에서 `일봉/주봉` 선택 기능을 넣어두었습니다.
+
+```python
 from __future__ import annotations
 
 import re
@@ -78,11 +81,7 @@ def normalize_price_frame(df: pd.DataFrame) -> pd.DataFrame:
         index_name = frame.index.name or "date"
         frame = frame.reset_index().rename(columns={index_name: "date", "index": "date"})
 
-    rename_map = {
-        "adj close": "adj_close",
-        "change": "change",
-    }
-    frame = frame.rename(columns=rename_map)
+    frame = frame.rename(columns={"adj close": "adj_close", "change": "change"})
 
     required = ["date", "open", "high", "low", "close"]
     if not set(required).issubset(frame.columns):
@@ -580,11 +579,13 @@ with tab_vcp:
             st.warning("이 CSV에는 vcp_phase가 2번대로 시작하는 종목이 없습니다.")
             st.stop()
 
-        left, right = st.columns([2, 1])
+        left, middle, right = st.columns([2, 1, 1])
         with left:
             selected_phases = st.multiselect("표시할 VCP 단계", phase_options, default=phase_options)
-        with right:
+        with middle:
             max_rows = st.slider("차트 표시 종목 수", 3, 60, 12, 3)
+        with right:
+            chart_period = st.radio("차트 주기", ["일봉", "주봉"], horizontal=True)
 
         vcp_df = filter_vcp_phase_2(uploaded_df, selected_phases).head(max_rows)
         if vcp_df.empty:
@@ -633,11 +634,27 @@ with tab_vcp:
                         st.warning("가격 데이터를 불러오지 못했습니다.")
                         continue
 
+                    if chart_period == "주봉":
+                        display_data = resample_weekly(chart_data)
+                        display_title = chart_title + " 주봉"
+                        volume_title = "주간 거래량"
+                        ma_windows = (10, 30)
+                    else:
+                        display_data = chart_data
+                        display_title = chart_title
+                        volume_title = "거래량"
+                        ma_windows = (20, 50)
+
+                    if display_data.empty:
+                        st.warning(f"{chart_period} 데이터를 만들지 못했습니다.")
+                        continue
+
                     st.plotly_chart(
                         make_price_volume_chart(
-                            chart_data,
-                            chart_title,
-                            "거래량",
+                            display_data,
+                            display_title,
+                            volume_title,
+                            moving_average_windows=ma_windows,
                             pivot_price=pivot_price,
                             pivot_distance_pct=pivot_distance_pct,
                             vcp_phase_label=phase_label,
@@ -729,3 +746,4 @@ with tab_manual:
 
 st.markdown("---")
 st.caption("본 대시보드는 참고용 정보 제공 도구이며, 투자 권유 또는 매매 추천이 아닙니다.")
+```
