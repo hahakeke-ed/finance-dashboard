@@ -1,0 +1,7 @@
+streamlit>=1.41,<2
+yfinance>=0.2.40,<0.3
+pandas>=2.0,<3
+plotly>=5.20,<7
+finance-datareader==0.9.96
+beautifulsoup4>=4.12,<5
+lxml>=5,<6
